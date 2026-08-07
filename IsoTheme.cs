@@ -38,8 +38,15 @@ public static class IsoTheme
     /// </summary>
     public const float FloorHeight = 200f;
 
-    /// <summary>Height of a drawn wall, in screen pixels.</summary>
-    public const float WallHeight = 96f;
+    /// <summary>
+    /// Height of a drawn wall, in screen pixels.
+    ///
+    /// Kept low relative to a tile: a 2×2 suite's floor plate is only about
+    /// 96×48px, so 96px walls towered over the interior and buried the
+    /// furniture the room exists to show. The cutaway reads better with
+    /// short walls that frame the floor rather than enclose it.
+    /// </summary>
+    public const float WallHeight = 58f;
 
     /// <summary>
     /// Project a grid cell to its screen-space centre.

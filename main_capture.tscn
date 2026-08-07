@@ -5,3 +5,4 @@
 [node name="GameScene" type="Node"]
 script = ExtResource("1_gamescene")
 ScreenshotAfterSeconds = 9.0
+InitialFloor = 1

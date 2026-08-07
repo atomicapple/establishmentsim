@@ -446,94 +446,300 @@ public partial class IsometricDollhouseView : Node2D
     }
 
     /// <summary>
-    /// Placeholder furnishings, laid out on a simple grid inside the plate.
-    /// Each piece is a little extruded box tinted by its style; dilapidated
-    /// pieces wash out toward the wall colour so a decayed room reads as
-    /// decayed at a glance, without needing the tooltip.
+    /// Draw a room's furnishings.
+    ///
+    /// Each category gets its own silhouette and its own place in the room —
+    /// a bed against the back wall, lamps in the corners, a rug underfoot —
+    /// rather than every piece being an identical box on a grid. That matters
+    /// more here than it usually would: furniture *is* the economy in this
+    /// game, so the player has to be able to see what they paid for and read
+    /// a room's style coherence at a glance.
+    ///
+    /// Dilapidated pieces wash out toward the wall colour, so a decayed room
+    /// reads as decayed without needing a tooltip.
     /// </summary>
     private void DrawFurniture(RoomModule room, float alpha)
     {
         var pieces = room.Furniture;
         if (pieces == null || pieces.Count == 0) return;
 
-        int width = Mathf.Max(1, room.Size.X);
-        int depth = Mathf.Max(1, room.Size.Y);
+        // Rugs lie flat under everything; wall decor hangs above and behind.
+        // Between those, sort back-to-front so pieces overlap correctly.
+        var ordered = new List<FurnitureItem>();
+        foreach (var item in pieces)
+            if (item != null) ordered.Add(item);
 
-        int columns = Mathf.Clamp(Mathf.CeilToInt(Mathf.Sqrt(pieces.Count)), 1, width * 2);
-        int rows = Mathf.Max(1, Mathf.CeilToInt(pieces.Count / (float)columns));
-
-        for (int i = 0; i < pieces.Count; i++)
+        ordered.Sort((a, b) =>
         {
-            var item = pieces[i];
-            if (item == null) continue;
+            var layer = GetDrawLayer(a.Category).CompareTo(GetDrawLayer(b.Category));
+            if (layer != 0) return layer;
+            return GetSlot(a.Category).Y.CompareTo(GetSlot(b.Category).Y);
+        });
 
-            int column = i % columns;
-            int row = i / columns;
+        // Several pieces of the same category fan out from that category's
+        // slot instead of stacking on top of each other.
+        var seen = new Dictionary<FurnitureCategory, int>();
 
-            float fx = room.GridPosition.X + (column + 0.5f) * (width / (float)columns) - 0.5f;
-            float fy = room.GridPosition.Y + (row + 0.5f) * (depth / (float)rows) - 0.5f;
-
-            var anchor = IsoTheme.GridToScreen(fx, fy, room.GridPosition.Z);
+        foreach (var item in ordered)
+        {
+            var index = seen.TryGetValue(item.Category, out var n) ? n : 0;
+            seen[item.Category] = index + 1;
 
             var tint = IsoTheme.GetStyleColor(item.StyleTag);
-            float pieceAlpha = alpha;
+            var pieceAlpha = alpha;
 
             if (item.IsDilapidated)
             {
                 tint = tint.Lerp(IsoTheme.FacadeShadow, 0.55f);
-                pieceAlpha *= 0.5f;
+                pieceAlpha *= 0.55f;
             }
 
-            DrawFurniturePiece(anchor, item, tint, pieceAlpha, columns, rows);
+            DrawPiece(room, item, index, tint, pieceAlpha);
         }
     }
 
-    private void DrawFurniturePiece(
-        Vector2 anchor, FurnitureItem item, Color tint, float alpha, int columns, int rows)
+    /// <summary>Normalised slot within the room footprint for each category.</summary>
+    private static Vector2 GetSlot(FurnitureCategory category) => category switch
     {
-        // Footprint shrinks as the room gets busier so pieces never merge into
-        // one blob; height varies by category so the silhouettes stay readable.
-        float halfWidth = Mathf.Max(6f, IsoTheme.TileWidth * 0.22f / Mathf.Max(1, columns * 0.6f));
-        float halfDepth = Mathf.Max(3f, IsoTheme.TileHeight * 0.22f / Mathf.Max(1, rows * 0.6f));
-        float height = GetPieceHeight(item.Category);
+        FurnitureCategory.Rug => new Vector2(0.50f, 0.55f),
+        FurnitureCategory.Decor => new Vector2(0.50f, 0.10f),
+        FurnitureCategory.Bed => new Vector2(0.34f, 0.32f),
+        FurnitureCategory.Bar => new Vector2(0.50f, 0.26f),
+        FurnitureCategory.Vanity => new Vector2(0.78f, 0.30f),
+        FurnitureCategory.Screen => new Vector2(0.20f, 0.70f),
+        FurnitureCategory.Bath => new Vector2(0.76f, 0.74f),
+        FurnitureCategory.Seating => new Vector2(0.66f, 0.62f),
+        FurnitureCategory.Lighting => new Vector2(0.16f, 0.20f),
+        _ => new Vector2(0.50f, 0.50f)
+    };
 
-        var top = new Vector2[]
+    /// <summary>Painting order: floor coverings, then furniture, then wall pieces.</summary>
+    private static int GetDrawLayer(FurnitureCategory category) => category switch
+    {
+        FurnitureCategory.Rug => 0,
+        FurnitureCategory.Decor => 2,
+        _ => 1
+    };
+
+    /// <summary>
+    /// Screen position of a normalised point inside a room's footprint.
+    ///
+    /// Must match <see cref="IsoTheme.GetFloorPolygon"/> exactly: that plate
+    /// spans origin → origin+size and is lifted half a tile. Subtracting the
+    /// usual half-cell centring offset instead pushed every piece up and left
+    /// by half a tile, so furniture drifted outside the room it belonged to.
+    /// </summary>
+    private static Vector2 RoomPoint(RoomModule room, float u, float v)
+    {
+        var fx = room.GridPosition.X + u * Mathf.Max(1, room.Size.X);
+        var fy = room.GridPosition.Y + v * Mathf.Max(1, room.Size.Y);
+
+        return IsoTheme.GridToScreen(fx, fy, room.GridPosition.Z)
+             + new Vector2(0, -IsoTheme.TileHeight * 0.5f);
+    }
+
+    private void DrawPiece(RoomModule room, FurnitureItem item, int index, Color tint, float alpha)
+    {
+        var slot = GetSlot(item.Category);
+
+        // Fan duplicates along a short diagonal so a room with three lamps
+        // shows three lamps rather than one thick one.
+        var fan = new Vector2(index * 0.16f, index * 0.10f);
+        var u = Mathf.Clamp(slot.X + fan.X, 0.10f, 0.90f);
+        var v = Mathf.Clamp(slot.Y + fan.Y, 0.10f, 0.90f);
+
+        var at = RoomPoint(room, u, v);
+
+        // Bigger rooms get bigger furniture, so a 3x2 lounge does not look
+        // like a doll's house version of a 2x2 suite.
+        var scale = Mathf.Min(1.35f, 0.72f + Mathf.Max(room.Size.X, room.Size.Y) * 0.16f);
+
+        switch (item.Category)
         {
-            anchor + new Vector2(0, -halfDepth - height),
-            anchor + new Vector2(halfWidth, -height),
-            anchor + new Vector2(0, halfDepth - height),
-            anchor + new Vector2(-halfWidth, -height)
+            case FurnitureCategory.Rug: DrawRug(at, tint, alpha, scale); break;
+            case FurnitureCategory.Bed: DrawBed(at, tint, alpha, scale); break;
+            case FurnitureCategory.Seating: DrawSeat(at, tint, alpha, scale); break;
+            case FurnitureCategory.Lighting: DrawLamp(at, tint, alpha, scale); break;
+            case FurnitureCategory.Bath: DrawBath(at, tint, alpha, scale); break;
+            case FurnitureCategory.Screen: DrawScreen(at, tint, alpha, scale); break;
+            case FurnitureCategory.Decor: DrawWallDecor(at, tint, alpha, scale); break;
+            case FurnitureCategory.Bar: DrawCounter(at, tint, alpha, scale, 1.5f); break;
+            case FurnitureCategory.Vanity: DrawCounter(at, tint, alpha, scale, 0.9f); break;
+            default: DrawBox(at, tint, alpha, 16f * scale, 9f * scale, 12f * scale); break;
+        }
+    }
+
+    // ── Piece silhouettes ──────────────────────────────────────────────
+
+    /// <summary>An extruded isometric box: the shared basis for most pieces.</summary>
+    private void DrawBox(Vector2 at, Color tint, float alpha, float halfW, float halfD, float height)
+    {
+        var top = new[]
+        {
+            at + new Vector2(0, -halfD - height),
+            at + new Vector2(halfW, -height),
+            at + new Vector2(0, halfD - height),
+            at + new Vector2(-halfW, -height)
         };
 
         if (height > 0.5f)
         {
-            // Two visible side faces, darker than the top.
+            var drop = new Vector2(0, height);
+
             DrawColoredPolygon(
-                new[] { top[3], top[2], top[2] + new Vector2(0, height), top[3] + new Vector2(0, height) },
+                new[] { top[3], top[2], top[2] + drop, top[3] + drop },
                 Fade(tint.Darkened(0.45f), alpha));
 
             DrawColoredPolygon(
-                new[] { top[2], top[1], top[1] + new Vector2(0, height), top[2] + new Vector2(0, height) },
-                Fade(tint.Darkened(0.28f), alpha));
+                new[] { top[2], top[1], top[1] + drop, top[2] + drop },
+                Fade(tint.Darkened(0.26f), alpha));
         }
 
         DrawColoredPolygon(top, Fade(tint, alpha));
-        DrawPolyline(Close(top), Fade(IsoTheme.CellOutline, alpha * 0.8f), 1.2f, antialiased: true);
+        DrawPolyline(Close(top), Fade(IsoTheme.CellOutline, alpha * 0.75f), 1.2f, antialiased: true);
     }
 
-    private static float GetPieceHeight(FurnitureCategory category) => category switch
+    /// <summary>A flat diamond on the floor, with a lighter inner border.</summary>
+    private void DrawRug(Vector2 at, Color tint, float alpha, float scale)
     {
-        FurnitureCategory.Rug => 0f,
-        FurnitureCategory.Bed => 8f,
-        FurnitureCategory.Bath => 10f,
-        FurnitureCategory.Seating => 12f,
-        FurnitureCategory.Vanity => 18f,
-        FurnitureCategory.Bar => 20f,
-        FurnitureCategory.Decor => 16f,
-        FurnitureCategory.Screen => 26f,
-        FurnitureCategory.Lighting => 30f,
-        _ => 14f
-    };
+        var halfW = 30f * scale;
+        var halfD = 16f * scale;
+
+        var outer = new[]
+        {
+            at + new Vector2(0, -halfD), at + new Vector2(halfW, 0),
+            at + new Vector2(0, halfD), at + new Vector2(-halfW, 0)
+        };
+
+        DrawColoredPolygon(outer, Fade(tint.Darkened(0.15f), alpha * 0.9f));
+
+        var inner = new[]
+        {
+            at + new Vector2(0, -halfD * 0.6f), at + new Vector2(halfW * 0.6f, 0),
+            at + new Vector2(0, halfD * 0.6f), at + new Vector2(-halfW * 0.6f, 0)
+        };
+
+        DrawPolyline(Close(inner), Fade(tint.Lightened(0.35f), alpha * 0.8f), 1.4f, antialiased: true);
+    }
+
+    /// <summary>A mattress slab with a raised headboard behind it.</summary>
+    private void DrawBed(Vector2 at, Color tint, float alpha, float scale)
+    {
+        var halfW = 24f * scale;
+        var halfD = 13f * scale;
+
+        // Headboard sits behind and taller.
+        DrawBox(at + new Vector2(-halfW * 0.55f, -halfD * 0.5f),
+            tint.Darkened(0.35f), alpha, halfW * 0.30f, halfD * 0.55f, 22f * scale);
+
+        DrawBox(at, tint, alpha, halfW, halfD, 9f * scale);
+
+        // Pillow, to break the slab up.
+        DrawBox(at + new Vector2(-halfW * 0.45f, -halfD * 0.25f),
+            tint.Lightened(0.45f), alpha, halfW * 0.26f, halfD * 0.34f, 12f * scale);
+    }
+
+    /// <summary>A seat cushion with a backrest.</summary>
+    private void DrawSeat(Vector2 at, Color tint, float alpha, float scale)
+    {
+        DrawBox(at, tint, alpha, 13f * scale, 7f * scale, 9f * scale);
+        DrawBox(at + new Vector2(-6f * scale, -4f * scale),
+            tint.Darkened(0.28f), alpha, 5f * scale, 6f * scale, 19f * scale);
+    }
+
+    /// <summary>
+    /// A stem topped with a glowing shade, plus the pool of light it throws.
+    /// The glow is what sells the warm interior of the reference art.
+    /// </summary>
+    private void DrawLamp(Vector2 at, Color tint, float alpha, float scale)
+    {
+        var height = 30f * scale;
+
+        DrawCircle(at, 16f * scale, Fade(IsoTheme.LampGlow, 0.13f * alpha));
+        DrawCircle(at, 9f * scale, Fade(IsoTheme.LampWarm, 0.16f * alpha));
+
+        DrawLine(at, at + new Vector2(0, -height), Fade(tint.Darkened(0.4f), alpha), 2.2f, true);
+
+        var shade = at + new Vector2(0, -height);
+        DrawCircle(shade, 6.5f * scale, Fade(IsoTheme.LampWarm, alpha));
+        DrawCircle(shade, 3.2f * scale, Fade(Colors.White, alpha * 0.85f));
+    }
+
+    /// <summary>A shallow basin: a flat ellipse rim with a darker interior.</summary>
+    private void DrawBath(Vector2 at, Color tint, float alpha, float scale)
+    {
+        DrawBox(at, tint.Darkened(0.2f), alpha, 17f * scale, 9f * scale, 8f * scale);
+
+        var lip = at + new Vector2(0, -8f * scale);
+        var inner = new[]
+        {
+            lip + new Vector2(0, -6f * scale), lip + new Vector2(12f * scale, 0),
+            lip + new Vector2(0, 6f * scale), lip + new Vector2(-12f * scale, 0)
+        };
+
+        DrawColoredPolygon(inner, Fade(new Color("2b4b57"), alpha * 0.9f));
+    }
+
+    /// <summary>A folding screen: three angled panels.</summary>
+    private void DrawScreen(Vector2 at, Color tint, float alpha, float scale)
+    {
+        var height = 30f * scale;
+        var panel = 9f * scale;
+
+        for (var i = 0; i < 3; i++)
+        {
+            var offset = at + new Vector2((i - 1) * panel, Mathf.Abs(i - 1) * 3f * scale);
+            var shade = i == 1 ? tint : tint.Darkened(0.3f);
+
+            DrawColoredPolygon(
+                new[]
+                {
+                    offset + new Vector2(-panel * 0.5f, 0),
+                    offset + new Vector2(panel * 0.5f, 2f * scale),
+                    offset + new Vector2(panel * 0.5f, 2f * scale - height),
+                    offset + new Vector2(-panel * 0.5f, -height)
+                },
+                Fade(shade, alpha));
+        }
+    }
+
+    /// <summary>A framed piece hung on the back wall, above the floor line.</summary>
+    private void DrawWallDecor(Vector2 at, Color tint, float alpha, float scale)
+    {
+        var hangHeight = IsoTheme.WallHeight * 0.55f;
+        var center = at + new Vector2(0, -hangHeight);
+
+        var halfW = 11f * scale;
+        var halfH = 8f * scale;
+
+        var frame = new[]
+        {
+            center + new Vector2(-halfW, -halfH), center + new Vector2(halfW, -halfH - 4f * scale),
+            center + new Vector2(halfW, halfH - 4f * scale), center + new Vector2(-halfW, halfH)
+        };
+
+        DrawColoredPolygon(frame, Fade(tint, alpha));
+        DrawPolyline(Close(frame), Fade(IsoTheme.Gold, alpha * 0.85f), 1.6f, antialiased: true);
+    }
+
+    /// <summary>A long counter — bar tops and vanities differ only in length.</summary>
+    private void DrawCounter(Vector2 at, Color tint, float alpha, float scale, float lengthFactor)
+    {
+        DrawBox(at, tint, alpha, 22f * scale * lengthFactor, 8f * scale, 20f * scale);
+
+        // A lighter top surface so it reads as a counter rather than a crate.
+        var topAt = at + new Vector2(0, -20f * scale);
+        var halfW = 22f * scale * lengthFactor;
+        var halfD = 8f * scale;
+
+        DrawColoredPolygon(
+            new[]
+            {
+                topAt + new Vector2(0, -halfD), topAt + new Vector2(halfW, 0),
+                topAt + new Vector2(0, halfD), topAt + new Vector2(-halfW, 0)
+            },
+            Fade(tint.Lightened(0.28f), alpha));
+    }
 
     private void DrawSelection(Vector3I origin, Vector2I size)
     {

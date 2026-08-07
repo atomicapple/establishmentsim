@@ -24,6 +24,9 @@ public partial class GameScene : Node
 {
     [Export] public bool AutoBeginFirstNight { get; set; } = true;
 
+    /// <summary>Floor the camera opens on. Ground by default.</summary>
+    [Export] public int InitialFloor { get; set; }
+
     /// <summary>Seconds before an automatic screenshot. Zero disables it.</summary>
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
@@ -92,7 +95,20 @@ public partial class GameScene : Node
         _pawns = new VenuePawnLayer { Name = "PawnLayer", ZIndex = 100 };
         _view.AddChild(_pawns);
 
-        _clouds = new EncounterCloudVfx { Name = "CloudVfx" };
+        _clouds = new EncounterCloudVfx
+        {
+            Name = "CloudVfx",
+
+            // Defaults billowed wide enough to blanket the whole room and
+            // hide the furniture underneath. The cloud is a status indicator
+            // sitting *above* the room, not weather covering it — so it rides
+            // higher, reads smaller, and stays translucent.
+            CloudRadius = 13f,
+            CloudLift = 74f,
+            CloudOpacity = 0.5f,
+            MaxPuffs = 5
+        };
+
         _view.AddChild(_clouds);
     }
 
@@ -147,7 +163,7 @@ public partial class GameScene : Node
         night.OnClientArrived += OnClientArrived;
         night.OnPhaseChanged += OnPhaseChanged;
 
-        _view.FocusedFloor = 0;
+        _view.FocusedFloor = InitialFloor;
         FitCameraToBuilding();
 
         RefreshStaffPawns();

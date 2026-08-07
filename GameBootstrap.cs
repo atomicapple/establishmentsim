@@ -137,8 +137,8 @@ public partial class GameBootstrap : Node
         // Lounge and Bar are both 3×2, suites are 2×2, Security is 2×1.
 
         // Ground floor — screening and upsell. Lounge x0–2, Bar x3–5.
-        GrantRoom(RoomType.Lounge, new Vector3I(0, 0, 0), "Front Lounge");
-        GrantRoom(RoomType.Bar, new Vector3I(3, 0, 0), "The Long Bar");
+        var lounge = GrantRoom(RoomType.Lounge, new Vector3I(0, 0, 0), "Front Lounge");
+        var bar = GrantRoom(RoomType.Bar, new Vector3I(3, 0, 0), "The Long Bar");
 
         // First floor — where the money is made. Rose x0–1, Jade x2–3.
         var rose = GrantRoom(RoomType.PrivateSuite, new Vector3I(0, 0, 1), "The Rose Room");
@@ -153,7 +153,32 @@ public partial class GameBootstrap : Node
         FurnishSuite(rose, FurnitureStyle.Baroque, tier: 2);
         FurnishSuite(jade, FurnitureStyle.Oriental, tier: 2);
 
+        // The public floor earns nothing directly but sets what every client
+        // will spend upstairs, via VenueBuilding.GetScreeningStrength and
+        // GetUpsellMultiplier. Leaving it bare wastes that multiplier.
+        FurnishPublicRoom(lounge, FurnitureStyle.Baroque, tier: 2);
+        FurnishPublicRoom(bar, FurnitureStyle.ArtDeco, tier: 2);
+
         Venue.RecalculateSynergies();
+    }
+
+    /// <summary>Seating, light and decor for a client-facing ground-floor room.</summary>
+    private void FurnishPublicRoom(RoomModule room, FurnitureStyle style, int tier)
+    {
+        if (room == null) return;
+
+        var pieces = new (string Name, FurnitureCategory Category)[]
+        {
+            ($"{style} Settee", FurnitureCategory.Seating),
+            ($"{style} Armchair", FurnitureCategory.Seating),
+            ($"{style} Chandelier", FurnitureCategory.Lighting),
+            ($"{style} Carpet", FurnitureCategory.Rug),
+            ($"{style} Portrait", FurnitureCategory.Decor),
+            (room.Type == RoomType.Bar ? "Zinc Counter" : $"{style} Console", FurnitureCategory.Bar)
+        };
+
+        foreach (var (name, category) in pieces)
+            Venue.AddFurniture(room.GridPosition, FurnitureItem.Create(name, category, style, tier));
     }
 
     /// <summary>
