@@ -812,6 +812,38 @@ public partial class VenueBuilding : Node, ISaveableSystem
         RefreshAppointment(room);
     }
 
+    /// <summary>
+    /// Refurbish every piece in the house by <paramref name="amount"/> points
+    /// of condition. This is what the nightly maintenance charge actually
+    /// buys — without it, wear is a one-way ratchet the player cannot answer
+    /// and every house eventually decays to unusable.
+    /// </summary>
+    /// <returns>Number of pieces that were below full condition.</returns>
+    public int MaintainAllFurniture(float amount)
+    {
+        if (amount <= 0f) return 0;
+
+        var repaired = 0;
+
+        foreach (var room in _rooms.Values)
+        {
+            var touched = false;
+
+            foreach (var item in room.Furniture)
+            {
+                if (item == null || item.Condition >= 100f) continue;
+
+                item.Repair(amount);
+                repaired++;
+                touched = true;
+            }
+
+            if (touched) RefreshAppointment(room);
+        }
+
+        return repaired;
+    }
+
     private void RefreshAppointment(RoomModule room)
     {
         room.AppointmentScore = RoomAppointmentCalculator.Calculate(room);

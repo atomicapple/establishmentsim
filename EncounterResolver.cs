@@ -102,36 +102,54 @@ public static class EncounterResolver
 {
     // ── Scoring weights ────────────────────────────────────────────────
 
+    // Tuning intent: a par house (Appointment meeting expectation, average
+    // staff, no style match, rested) should land Adequate. Deliberate play —
+    // a well-appointed room in a style the client wanted, worked by strong
+    // rested staff — should reach Good and occasionally Exceptional. Neglect
+    // should fall to Poor and Disastrous.
+    //
+    // The first pass weighted the player's own levers too weakly: across 20
+    // encounters nothing ever cleared Good, because the modifiers could not
+    // move the score far enough from base. These weights are roughly doubled
+    // so that what the player controls actually decides the outcome.
+
     /// <summary>Score everyone starts from before modifiers.</summary>
-    public const float BaseScore = 42f;
+    public const float BaseScore = 47f;
 
     /// <summary>Score per point the room's Appointment beats the client's expectation.</summary>
-    public const float AppointmentWeight = 0.30f;
+    public const float AppointmentWeight = 0.55f;
 
     /// <summary>Score per point of staff Charisma above the 50 midpoint.</summary>
-    public const float CharismaWeight = 0.25f;
+    public const float CharismaWeight = 0.40f;
 
     /// <summary>Bonus when the room's dominant style matches what the client wanted.</summary>
-    public const float StyleMatchBonus = 10f;
+    public const float StyleMatchBonus = 14f;
 
     /// <summary>Score lost per point of staff Stress.</summary>
-    public const float StressPenalty = 0.16f;
+    public const float StressPenalty = 0.22f;
 
     /// <summary>Score lost per point of staff Trauma.</summary>
-    public const float TraumaPenalty = 0.05f;
+    public const float TraumaPenalty = 0.07f;
 
     /// <summary>Bonus for a Hostess working the encounter.</summary>
-    public const float HostessBonus = 8f;
+    public const float HostessBonus = 10f;
 
-    /// <summary>Random swing applied to every encounter, plus or minus.</summary>
-    public const float RandomSwing = 8f;
+    /// <summary>
+    /// Random swing applied to every encounter, plus or minus. Kept modest so
+    /// preparation reads as the dominant factor rather than luck.
+    /// </summary>
+    public const float RandomSwing = 7f;
 
     // ── Quality bands ──────────────────────────────────────────────────
 
-    public const float ExceptionalThreshold = 78f;
-    public const float GoodThreshold = 60f;
-    public const float AdequateThreshold = 42f;
-    public const float PoorThreshold = 25f;
+    // Positioned so a well-appointed room alone lands Adequate, and reaching
+    // Good takes a second deliberate factor on top — a style match, strong
+    // staff, or a specialization. An earlier pass put Good at 58, which the
+    // Appointment term cleared on its own and made Good the modal band.
+    public const float ExceptionalThreshold = 82f;
+    public const float GoodThreshold = 62f;
+    public const float AdequateThreshold = 40f;
+    public const float PoorThreshold = 24f;
 
     /// <summary>
     /// Resolve one encounter.
@@ -205,13 +223,16 @@ public static class EncounterResolver
             float roomRisk = 1.5f - (Mathf.Clamp(roomDiscretion, 0f, 100f) / 100f);
             float mitigation = 1.0f - (staff.Discretion / 200f);
 
+            // Tuned against nightly recovery: four Adequate encounters should
+            // cost slightly less than a night's rest restores, so a normal
+            // shift is sustainable and only a bad or busy one accumulates.
             float baseCost = outcome.Quality switch
             {
-                EncounterQuality.Exceptional => 4f,
-                EncounterQuality.Good => 6f,
-                EncounterQuality.Adequate => 8f,
-                EncounterQuality.Poor => 12f,
-                _ => 18f
+                EncounterQuality.Exceptional => 3f,
+                EncounterQuality.Good => 4f,
+                EncounterQuality.Adequate => 5.5f,
+                EncounterQuality.Poor => 8f,
+                _ => 13f
             };
 
             outcome.StaffStressDelta = baseCost * roomRisk * mitigation;
@@ -262,7 +283,10 @@ public static class EncounterResolver
                 break;
 
             case EncounterQuality.Poor:
-                outcome.ReputationDelta = -1.2f;
+                // Kept small relative to the Good/Exceptional gains. A steeper
+                // penalty here compounds into a reputation spiral: fewer
+                // arrivals, fewer chances to recover, fewer arrivals again.
+                outcome.ReputationDelta = -0.6f;
                 outcome.Narrative = "Grumbled about the room on the way out.";
 
                 if (rng.Randf() < 0.25f)

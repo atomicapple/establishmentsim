@@ -61,8 +61,17 @@ public partial class HeatSystem : Node, ISaveableSystem
 
     // ── Generation tuning ──────────────────────────────────────────────
 
-    /// <summary>Base heat generated per $1000 of daily revenue.</summary>
-    public float HeatPerThousandRevenue { get; set; } = 0.5f;
+    /// <summary>
+    /// Base heat generated per $1000 of daily revenue.
+    ///
+    /// Must out-scale <see cref="DailyDecayRate"/> at a working house or the
+    /// police layer never engages at all: at the original 0.5, a $600 night
+    /// generated 0.3 heat against 2.0 of decay, so heat sat at zero forever
+    /// and raids, bribes and DA influence were unreachable. At 5.0 a modest
+    /// house drifts up slowly while a busy one climbs fast — success is what
+    /// attracts attention, which is the intended pressure.
+    /// </summary>
+    public float HeatPerThousandRevenue { get; set; } = 5.0f;
 
     /// <summary>Multiplier applied per client tier level.</summary>
     public float[] TierMultipliers { get; set; } = { 1.0f, 1.5f, 2.5f };
@@ -131,12 +140,18 @@ public partial class HeatSystem : Node, ISaveableSystem
     {
         var day = GameStateManager.Instance?.DayCount ?? 0;
 
-        // 1. Real revenue for the day, from the ledger.
+        // 1. Real revenue for the night that just ended.
         //    This previously estimated revenue as 10% of current cash, which
         //    made heat a function of the player's bank balance rather than
         //    their activity — and, because cash is essentially always
         //    positive, meant the decay branch below could never run.
-        double dailyRevenue = GetDailyRevenue(day);
+        //
+        //    Note the day - 1: encounters book revenue while DayCount is still
+        //    the old value, and AdvanceDay() increments before emitting this
+        //    tick. Reading `day` here queries a night that has not happened
+        //    yet, which silently pinned heat at zero and left raids, bribes
+        //    and DA influence permanently unreachable.
+        double dailyRevenue = GetDailyRevenue(day - 1);
 
         // 2. Passive decay. Police attention fades on its own; this is
         //    unconditional so that a quiet night is genuinely a way to cool

@@ -136,7 +136,13 @@ public partial class FurnitureItem : Resource
     // ── Wear ───────────────────────────────────────────────────────────
 
     /// <summary>Base condition lost per unit of usage before tier resistance.</summary>
-    public const float BaseWearPerUse = 2.5f;
+    /// <summary>
+    /// Condition lost per use by a tier-1 piece. Deliberately small: wear is
+    /// meant to be a slow drift the player counters with nightly maintenance,
+    /// not a cliff. At 2.5 a furnished suite lost roughly half its Appointment
+    /// over twenty nights with no way to arrest it.
+    /// </summary>
+    public const float BaseWearPerUse = 0.9f;
 
     /// <summary>
     /// Degrade Condition after a night's use. Higher tiers are built better
@@ -196,7 +202,11 @@ public partial class FurnitureItem : Resource
             Tier = t,
             Comfort = Mathf.Lerp(20f, 92f, band),
             Prestige = Mathf.Lerp(12f, 96f, band),
-            Upkeep = 0.5 + t * 1.5,
+            // Upkeep is the late-game brake: a large house must be expensive
+            // simply to keep standing, or the economy collapses into free
+            // money once the build-out is paid for. Scales steeply with tier
+            // so a palace of tier-5 pieces is a genuine ongoing commitment.
+            Upkeep = 1.5 + t * t * 1.4,
             PurchasePrice = 40 * Math.Pow(2.1, t - 1),
             Condition = 100f,
             Footprint = footprint ?? Vector2I.One

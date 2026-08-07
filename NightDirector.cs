@@ -59,6 +59,9 @@ public class NightReport
     public double Upkeep { get; set; }
     public double Salaries { get; set; }
 
+    /// <summary>Cut paid to staff on what they earned tonight.</summary>
+    public double StaffCommission { get; set; }
+
     public int ClientsArrived { get; set; }
     public int ClientsServed { get; set; }
     public int ClientsTurnedAway { get; set; }
@@ -72,7 +75,7 @@ public class NightReport
     public List<string> Incidents { get; } = new();
 
     /// <summary>Net cash position for the night, before standing OPEX.</summary>
-    public double Net => Revenue - Upkeep - Salaries;
+    public double Net => Revenue - Upkeep - Salaries - StaffCommission;
 
     public override string ToString() =>
         $"[Night {Night}] Served {ClientsServed}/{ClientsArrived} — " +
@@ -138,7 +141,27 @@ public partial class NightDirector : Node, ISaveableSystem
     [Export] public int MaxEncountersPerStaff { get; set; } = 4;
 
     /// <summary>Base nightly rate before Appointment and floor scaling.</summary>
-    [Export] public double BaseRoomPrice { get; set; } = 120.0;
+    [Export] public double BaseRoomPrice { get; set; } = 78.0;
+
+    /// <summary>
+    /// Condition restored to every furnishing each night, paid for by the
+    /// upkeep charge. Set below a busy room's nightly wear so heavily-used
+    /// rooms still degrade over time — maintenance slows the decay, it does
+    /// not cancel it.
+    /// </summary>
+    [Export] public float NightlyMaintenanceRepair { get; set; } = 2.0f;
+
+    /// <summary>
+    /// Share of each encounter's take that goes to the staff member who
+    /// earned it.
+    ///
+    /// This is the main brake on the economy, and it is structural rather
+    /// than a flat fee: costs now scale with revenue, so a busier house is
+    /// not automatically a richer one. It also makes the Workforce Protection
+    /// branch legible — paying people properly is what the exploitation
+    /// branch is buying its way out of.
+    /// </summary>
+    [Export] public double StaffCommissionRate { get; set; } = 0.42;
 
     // ── State ──────────────────────────────────────────────────────────
 
@@ -318,6 +341,13 @@ public partial class NightDirector : Node, ISaveableSystem
         if (_report.Upkeep > 0)
             ChargeExpense(ExpenseCategory.FacilityMaintenance, _report.Upkeep,
                 $"Night {_report.Night} furniture upkeep");
+
+        // The upkeep charge now buys something. Paying it refurbishes the
+        // house a little each night, which is the player's answer to furniture
+        // wear — without it, Appointment only ever falls.
+        var repaired = venue?.MaintainAllFurniture(NightlyMaintenanceRepair) ?? 0;
+        if (repaired > 0)
+            GD.Print($"[NightDirector] Maintenance refurbished {repaired} pieces.");
 
         ApplySocialAndShiftEffects();
 
@@ -572,6 +602,20 @@ public partial class NightDirector : Node, ISaveableSystem
 
             RecordRevenue(category, outcome.Payment,
                 $"Night {_report.Night}: {encounter.Client.Name} in {room.RoomName}");
+
+            // The earner's cut, booked immediately against the same encounter
+            // so the Ledger screen can show gross and net side by side.
+            var commission = Math.Round(outcome.Payment * GetCommissionRate(), 2);
+            if (commission > 0)
+            {
+                _report.StaffCommission += commission;
+                ChargeExpense(ExpenseCategory.StaffSalaries, commission,
+                    $"Night {_report.Night}: {staff?.StaffName ?? "house"} commission");
+
+                // Being paid well is the most direct route to a Money ambition.
+                if (staff?.Ambition == StaffAmbition.Money)
+                    staff.AdvanceAmbition((float)(commission / 120.0));
+            }
         }
 
         // ── Staff ──────────────────────────────────────────────────────
@@ -593,16 +637,25 @@ public partial class NightDirector : Node, ISaveableSystem
                 staff.Trauma += outcome.StaffTraumaDelta;
             }
 
-            // Good nights build commitment; bad ones erode it.
-            staff.AdjustLoyalty(
-                outcome.Quality >= EncounterQuality.Good ? 1.0f : -1.5f, "encounter");
+            // Good nights build commitment; bad ones erode it. Adequate is
+            // deliberately neutral — it is the modal outcome and the intended
+            // baseline, so treating it as an erosion made loyalty fall on
+            // every ordinary night and collapsed the roster by night twenty.
+            var loyaltyDelta = outcome.Quality switch
+            {
+                EncounterQuality.Exceptional => 1.5f,
+                EncounterQuality.Good => 0.8f,
+                EncounterQuality.Adequate => 0f,
+                EncounterQuality.Poor => -0.8f,
+                _ => -2.5f
+            };
+
+            if (!Mathf.IsZeroApprox(loyaltyDelta))
+                staff.AdjustLoyalty(loyaltyDelta, "encounter");
 
             if (outcome.Quality >= EncounterQuality.Good &&
                 staff.Ambition == StaffAmbition.Status)
                 staff.AdvanceAmbition(2f);
-
-            if (outcome.Payment > 0 && staff.Ambition == StaffAmbition.Money)
-                staff.AdvanceAmbition((float)(outcome.Payment / 200.0));
         }
 
         // ── World ──────────────────────────────────────────────────────
@@ -685,6 +738,24 @@ public partial class NightDirector : Node, ISaveableSystem
 
     private VenueBuilding FindVenue() =>
         GetTree()?.Root?.FindChild("VenueBuilding", true, false) as VenueBuilding;
+
+    /// <summary>
+    /// Commission rate after policy. The exploitation branch suppresses the
+    /// earner's cut — cheaper per night, and paid for in Loyalty and Stress
+    /// through the modifiers those policies already set.
+    /// </summary>
+    private double GetCommissionRate()
+    {
+        var policies = GetTree()?.Root?.FindChild("PolicyTreeManager", true, false) as PolicyTreeManager;
+        if (policies == null) return StaffCommissionRate;
+
+        return policies.ActiveBranch switch
+        {
+            PolicyBranch.SystemicExploitation => StaffCommissionRate * 0.55,
+            PolicyBranch.WorkforceProtection => StaffCommissionRate * 1.15,
+            _ => StaffCommissionRate
+        };
+    }
 
     private void RecordRevenue(RevenueCategory category, double amount, string description)
     {

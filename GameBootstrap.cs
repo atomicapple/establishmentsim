@@ -242,7 +242,12 @@ public partial class GameBootstrap : Node
             Charisma = charisma,
             Negotiation = negotiation,
             Discretion = discretion,
-            Salary = 250
+
+            // Monthly retainer, amortized daily by the ledger and paid on top
+            // of each night's commission. Set high enough that an idle roster
+            // is a real drain — keeping people on the books has to cost
+            // something, or there is no pressure to actually use them.
+            Salary = 450
         };
 
         if (trauma > 0f) staff.Trauma = trauma;

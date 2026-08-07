@@ -244,8 +244,23 @@ public partial class PsychologicalBreakSystem : Node, ISaveableSystem
 
     // ── Daily Recovery ─────────────────────────────────────────────────
 
-    /// <summary>Stress recovered per day by an unmodified staff member resting between nights.</summary>
-    public float BaseDailyStressRecovery { get; set; } = 6.0f;
+    /// <summary>
+    /// Stress recovered per day by an unmodified staff member resting
+    /// between nights.
+    ///
+    /// Calibrated to sit slightly *below* a normal night's load. A staff
+    /// member working four Adequate encounters takes on roughly 18 stress, so
+    /// recovery of 15 means a working night still accumulates a few points
+    /// while an idle or light one repays them.
+    ///
+    /// The margin matters in both directions. At the original 6, stress
+    /// climbed ~19/night, saturated by night five and dragged every encounter
+    /// into the Disastrous band. At 20 it cancelled the load outright and
+    /// stress sat at zero forever, which made this whole system inert. The
+    /// point is a resource the player has to actively manage — by rotating
+    /// staff, hiring depth, or taking the Medical Care policy.
+    /// </summary>
+    public float BaseDailyStressRecovery { get; set; } = 15.0f;
 
     /// <summary>
     /// Rest and policy effects, applied before the break checks.
