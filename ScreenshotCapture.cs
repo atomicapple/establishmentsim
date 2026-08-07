@@ -35,6 +35,12 @@ public partial class ScreenshotCapture : Node
 
     public override void _Ready()
     {
+        // Keep ticking while the tree is paused. Modal screens — the Ledger
+        // in particular — pause the game, and with the default inherited
+        // process mode the auto-capture timer simply stopped, so the shutter
+        // never fired on precisely the screens most worth photographing.
+        ProcessMode = ProcessModeEnum.Always;
+
         DirAccess.MakeDirRecursiveAbsolute(OutputDirectory);
         GD.Print($"[Screenshot] Ready. Press {CaptureKey} to capture. " +
                  $"Output: {ProjectSettings.GlobalizePath(OutputDirectory)}");

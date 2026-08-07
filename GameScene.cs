@@ -33,6 +33,18 @@ public partial class GameScene : Node
     /// </summary>
     [Export] public bool CaptureDecoratePanel { get; set; }
 
+    /// <summary>
+    /// Capture runs only: play a compressed night through to the Ledger so
+    /// the shot shows the end-of-night summary.
+    /// </summary>
+    [Export] public bool CaptureLedger { get; set; }
+
+    /// <summary>Capture runs only: open the staff panel on the given tab.</summary>
+    [Export] public bool CaptureStaffPanel { get; set; }
+
+    /// <summary>Which staff tab a capture run opens. 0 = Roster, 1 = Hiring.</summary>
+    [Export] public int CaptureStaffTab { get; set; }
+
     /// <summary>Seconds before an automatic screenshot. Zero disables it.</summary>
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
@@ -43,6 +55,7 @@ public partial class GameScene : Node
     private GameHud _hud;
     private NightLedgerScreen _ledger;
     private DecoratePanel _decorate;
+    private StaffPanel _staff;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -127,25 +140,21 @@ public partial class GameScene : Node
         _ledger = new NightLedgerScreen { Name = "NightLedger" };
         AddChild(_ledger);
 
-        // The decorate panel lives on the left, opposite the build panel, in
-        // the space the floor selector leaves free. It is a Control, so it
-        // needs its own CanvasLayer to sit above the Node2D dollhouse.
-        var decorateLayer = new CanvasLayer { Name = "DecorateLayer", Layer = 20 };
-        AddChild(decorateLayer);
+        // Side panels are Controls, so they need a CanvasLayer to sit above
+        // the Node2D dollhouse.
+        var panelLayer = new CanvasLayer { Name = "PanelLayer", Layer = 20 };
+        AddChild(panelLayer);
 
-        _decorate = new DecoratePanel
-        {
-            Name = "DecoratePanel",
-            Visible = false,
-            AnchorTop = 0f,
-            AnchorBottom = 1f,
-            OffsetLeft = 16f,
-            OffsetTop = HudTopBarHeight + 12f,
-            OffsetRight = 16f + DecoratePanelWidth,
-            OffsetBottom = -(HudBottomHeight + 12f)
-        };
+        // Both panels anchor themselves to fill their parent in _Ready, which
+        // overrides any offsets set here. So each gets a sized host Control
+        // that defines the left column, and fills that instead of the screen.
+        _decorate = new DecoratePanel { Name = "DecoratePanel" };
+        panelLayer.AddChild(MakeSidePanelHost("DecorateHost", DecoratePanelWidth, _decorate));
 
-        decorateLayer.AddChild(_decorate);
+        // The staff panel shares that column; only one is ever open, since
+        // both want the same real estate.
+        _staff = new StaffPanel { Name = "StaffPanel" };
+        panelLayer.AddChild(MakeSidePanelHost("StaffHost", StaffPanelWidth, _staff));
 
         _screenshot = new ScreenshotCapture
         {
@@ -157,6 +166,36 @@ public partial class GameScene : Node
     }
 
     private const float DecoratePanelWidth = 360f;
+    private const float StaffPanelWidth = 400f;
+
+    /// <summary>
+    /// Wrap a side panel in a host Control that defines the left column.
+    ///
+    /// The panels anchor themselves to fill their parent during _Ready, so
+    /// setting offsets on the panel directly is silently overridden and it
+    /// covers the whole screen. Giving each one a correctly-sized parent to
+    /// fill is the fix; the host ignores mouse input itself so it never eats
+    /// clicks meant for the dollhouse behind it.
+    /// </summary>
+    private Control MakeSidePanelHost(string hostName, float width, Control panel)
+    {
+        var host = new Control
+        {
+            Name = hostName,
+            AnchorTop = 0f,
+            AnchorBottom = 1f,
+            OffsetLeft = 16f,
+            OffsetTop = HudTopBarHeight + 12f,
+            OffsetRight = 16f + width,
+            OffsetBottom = -(HudBottomHeight + 12f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+
+        panel.Visible = false;
+        host.AddChild(panel);
+
+        return host;
+    }
 
     // ── Wiring ─────────────────────────────────────────────────────────
 
@@ -181,6 +220,51 @@ public partial class GameScene : Node
 
         _decorate.OnRoomChanged += OnDecorateRoomChanged;
         _decorate.OnCloseRequested += () => _decorate.Visible = false;
+
+        _staff.OnCloseRequested += () => _staff.Visible = false;
+        _staff.OnRosterChanged += OnRosterChanged;
+
+        // The HUD's roster controls open the staff panel.
+        _hud.OnStaffSelected += _ => ToggleStaffPanel(true);
+    }
+
+    /// <summary>A hire or departure changes who is posted, so redraw the pawns.</summary>
+    private void OnRosterChanged()
+    {
+        RefreshStaffPawns();
+        _hud?.RefreshAll();
+    }
+
+    /// <summary>
+    /// Show or hide the staff panel. The two left-hand panels are mutually
+    /// exclusive because they occupy the same column.
+    /// </summary>
+    private void ToggleStaffPanel(bool show)
+    {
+        _staff.Visible = show;
+        if (show)
+        {
+            _decorate.Visible = false;
+            _staff.Refresh();
+        }
+    }
+
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        if (@event is not InputEventKey { Pressed: true, Echo: false } key) return;
+
+        switch (key.Keycode)
+        {
+            // No HUD affordance opens the roster yet, so it is on a key.
+            case Key.S:
+                ToggleStaffPanel(!_staff.Visible);
+                break;
+
+            case Key.Escape:
+                _staff.Visible = false;
+                _decorate.Visible = false;
+                break;
+        }
     }
 
     /// <summary>Repaint the dollhouse after a purchase or sale changes a room.</summary>
@@ -195,6 +279,7 @@ public partial class GameScene : Node
         _view.Bind(_boot.Venue);
         _hud.Bind(_boot.Night, _boot.Venue);
         _decorate.Bind(_boot.Catalog, _boot.Venue);
+        _staff.Bind(_boot.Recruitment);
 
         var night = _boot.Night;
         night.OnEncounterStarted += OnEncounterStarted;
@@ -277,6 +362,23 @@ public partial class GameScene : Node
             if (suite != null) OnRoomClicked(
                 suite.GridPosition.X, suite.GridPosition.Y, suite.GridPosition.Z);
 
+            return;
+        }
+
+        if (CaptureStaffPanel)
+        {
+            ToggleStaffPanel(true);
+            _staff.ShowTab((StaffPanelTab)Mathf.Clamp(CaptureStaffTab, 0, 1));
+            return;
+        }
+
+        if (CaptureLedger)
+        {
+            // Compress hard so the whole night resolves well before the
+            // shutter, leaving the Ledger on screen.
+            _boot.Night.ServiceDurationSeconds = 2f;
+            _boot.Night.EncounterDurationSeconds = 0.15f;
+            _boot.Night.OpenDoors();
             return;
         }
 
