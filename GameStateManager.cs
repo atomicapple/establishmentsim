@@ -170,7 +170,18 @@ public partial class GameStateManager : Node
 
     // ── Tick Logic ─────────────────────────────────────────────────────
 
-    private void OnTimerTimeout()
+    private void OnTimerTimeout() => AdvanceDay();
+
+    /// <summary>
+    /// Advance the world by one day and broadcast the tick.
+    ///
+    /// Split out of the timer callback because the day is no longer paced by
+    /// a 60-second wall clock — <see cref="NightDirector"/> calls this when
+    /// the player closes the Ledger, so a day is exactly one played night.
+    /// Call <see cref="PauseTick"/> to stop the legacy timer when the night
+    /// loop is driving.
+    /// </summary>
+    public void AdvanceDay()
     {
         _dayCount++;
         GD.Print($"[GameStateManager] Day {_dayCount} tick — " +
