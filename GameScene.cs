@@ -27,6 +27,12 @@ public partial class GameScene : Node
     /// <summary>Floor the camera opens on. Ground by default.</summary>
     [Export] public int InitialFloor { get; set; }
 
+    /// <summary>
+    /// Capture runs only: open the decorate panel on a suite instead of
+    /// opening the doors, so the shot shows the furniture shop.
+    /// </summary>
+    [Export] public bool CaptureDecoratePanel { get; set; }
+
     /// <summary>Seconds before an automatic screenshot. Zero disables it.</summary>
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
@@ -36,6 +42,7 @@ public partial class GameScene : Node
     private EncounterCloudVfx _clouds;
     private GameHud _hud;
     private NightLedgerScreen _ledger;
+    private DecoratePanel _decorate;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -120,6 +127,26 @@ public partial class GameScene : Node
         _ledger = new NightLedgerScreen { Name = "NightLedger" };
         AddChild(_ledger);
 
+        // The decorate panel lives on the left, opposite the build panel, in
+        // the space the floor selector leaves free. It is a Control, so it
+        // needs its own CanvasLayer to sit above the Node2D dollhouse.
+        var decorateLayer = new CanvasLayer { Name = "DecorateLayer", Layer = 20 };
+        AddChild(decorateLayer);
+
+        _decorate = new DecoratePanel
+        {
+            Name = "DecoratePanel",
+            Visible = false,
+            AnchorTop = 0f,
+            AnchorBottom = 1f,
+            OffsetLeft = 16f,
+            OffsetTop = HudTopBarHeight + 12f,
+            OffsetRight = 16f + DecoratePanelWidth,
+            OffsetBottom = -(HudBottomHeight + 12f)
+        };
+
+        decorateLayer.AddChild(_decorate);
+
         _screenshot = new ScreenshotCapture
         {
             Name = "ScreenshotCapture",
@@ -128,6 +155,8 @@ public partial class GameScene : Node
 
         AddChild(_screenshot);
     }
+
+    private const float DecoratePanelWidth = 360f;
 
     // ── Wiring ─────────────────────────────────────────────────────────
 
@@ -149,12 +178,23 @@ public partial class GameScene : Node
         _view.OnRoomClicked += OnRoomClicked;
 
         _ledger.OnContinuePressed += OnLedgerContinue;
+
+        _decorate.OnRoomChanged += OnDecorateRoomChanged;
+        _decorate.OnCloseRequested += () => _decorate.Visible = false;
+    }
+
+    /// <summary>Repaint the dollhouse after a purchase or sale changes a room.</summary>
+    private void OnDecorateRoomChanged(int x, int y, int floor)
+    {
+        _view.Refresh();
+        _hud?.RefreshAll();
     }
 
     private void OnWorldReady()
     {
         _view.Bind(_boot.Venue);
         _hud.Bind(_boot.Night, _boot.Venue);
+        _decorate.Bind(_boot.Catalog, _boot.Venue);
 
         var night = _boot.Night;
         night.OnEncounterStarted += OnEncounterStarted;
@@ -225,15 +265,27 @@ public partial class GameScene : Node
             RefreshStaffPawns();
         }
 
-        // A capture run should photograph the game working, not the paused
-        // Preparation screen. Compress the night and open the doors so the
-        // shot catches live clients, pawns and encounter clouds.
-        if (ScreenshotAfterSeconds > 0f && _boot?.Night != null)
+        if (ScreenshotAfterSeconds <= 0f || _boot?.Night == null) return;
+
+        if (CaptureDecoratePanel)
         {
-            _boot.Night.ServiceDurationSeconds = ScreenshotAfterSeconds * 3f;
-            _boot.Night.EncounterDurationSeconds = 4f;
-            _boot.Night.OpenDoors();
+            // Decorating is a Preparation-time activity, so leave the doors
+            // shut and photograph the panel over a furnished suite.
+            var suite = _boot.Venue?.GetRoomsOnFloor(1)
+                ?.FirstOrDefault(r => _boot.Venue.IsRevenueGenerating(r));
+
+            if (suite != null) OnRoomClicked(
+                suite.GridPosition.X, suite.GridPosition.Y, suite.GridPosition.Z);
+
+            return;
         }
+
+        // Otherwise photograph the game working rather than the paused
+        // Preparation screen: compress the night and open the doors so the
+        // shot catches live clients, pawns and encounter clouds.
+        _boot.Night.ServiceDurationSeconds = ScreenshotAfterSeconds * 3f;
+        _boot.Night.EncounterDurationSeconds = 4f;
+        _boot.Night.OpenDoors();
     }
 
     // ── HUD handlers ───────────────────────────────────────────────────
@@ -284,10 +336,17 @@ public partial class GameScene : Node
 
     private void OnRoomClicked(int x, int y, int floor)
     {
-        var room = _boot?.Venue?.GetRoom(new Vector3I(x, y, floor));
+        var tile = new Vector3I(x, y, floor);
+        var room = _boot?.Venue?.GetRoom(tile);
         if (room == null) return;
 
-        GD.Print($"[GameScene] {room.RoomName} — {room.Type}, " +
+        // Clicking a room opens it for decoration. This is the only route to
+        // the furniture shop, and therefore the only way a player reaches the
+        // style-coherence mechanic at all.
+        _decorate.ShowRoom(tile);
+        _decorate.Visible = true;
+
+        GD.Print($"[GameScene] Decorating {room.RoomName} — " +
                  $"appointment {room.AppointmentScore:F0}, {room.Furniture.Count} pieces.");
     }
 
