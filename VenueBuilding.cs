@@ -319,8 +319,13 @@ public partial class VenueBuilding : Node, ISaveableSystem
         {
             [RoomType.PrivateSuite] = new()
             {
-                Cash = 800, Luxury = 25, Discretion = 20, Noise = 5,
-                Size = new Vector2I(2, 2), StreetVisibility = 10, Soundproofing = 25,
+                // 3×2 rather than 2×2: a two-tile suite could not hold its
+                // furniture, a staff pawn, a label and an encounter cloud
+                // without the furnishings becoming unreadable — and furniture
+                // is what the room is actually selling. The wider footprint
+                // also lifts its furniture capacity from 8 slots to 12.
+                Cash = 1000, Luxury = 25, Discretion = 20, Noise = 5,
+                Size = new Vector2I(3, 2), StreetVisibility = 10, Soundproofing = 25,
                 DisplayName = "Private Suite"
             },
             [RoomType.Lounge] = new()

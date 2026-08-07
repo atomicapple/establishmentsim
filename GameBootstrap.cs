@@ -140,9 +140,11 @@ public partial class GameBootstrap : Node
         var lounge = GrantRoom(RoomType.Lounge, new Vector3I(0, 0, 0), "Front Lounge");
         var bar = GrantRoom(RoomType.Bar, new Vector3I(3, 0, 0), "The Long Bar");
 
-        // First floor — where the money is made. Rose x0–1, Jade x2–3.
+        // First floor — where the money is made. Suites are 3×2, so Rose
+        // takes x0–2 and Jade x3–5; at the old 2×2 footprint Jade sat at x2
+        // and would now overlap.
         var rose = GrantRoom(RoomType.PrivateSuite, new Vector3I(0, 0, 1), "The Rose Room");
-        var jade = GrantRoom(RoomType.PrivateSuite, new Vector3I(2, 0, 1), "The Jade Room");
+        var jade = GrantRoom(RoomType.PrivateSuite, new Vector3I(3, 0, 1), "The Jade Room");
 
         // Basement — pure liability, earns nothing.
         GrantRoom(RoomType.Security, new Vector3I(0, 0, -1), "Watch Office");

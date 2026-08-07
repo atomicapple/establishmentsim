@@ -760,9 +760,14 @@ public partial class IsometricDollhouseView : Node2D
         var font = ThemeDB.FallbackFont;
         if (font == null) return;
 
-        var center = Centroid(plate);
+        // Anchored below the plate's south corner — the empty apron in front
+        // of the room — rather than on its centroid. Centred text sat directly
+        // on top of the furniture, and in a small suite the label, the score,
+        // a staff pawn and an encounter cloud all competed for the same few
+        // pixels with the contents losing.
+        var south = plate[2];
         float boxWidth = Mathf.Max(72f, (plate[1].X - plate[3].X) * 0.9f);
-        var textOrigin = new Vector2(center.X - boxWidth * 0.5f, center.Y + 2f);
+        var textOrigin = new Vector2(south.X - boxWidth * 0.5f, south.Y + LabelFontSize + 2f);
 
         DrawString(font, textOrigin, room.RoomName,
             HorizontalAlignment.Center, boxWidth, LabelFontSize,

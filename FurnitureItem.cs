@@ -204,9 +204,13 @@ public partial class FurnitureItem : Resource
             Prestige = Mathf.Lerp(12f, 96f, band),
             // Upkeep is the late-game brake: a large house must be expensive
             // simply to keep standing, or the economy collapses into free
-            // money once the build-out is paid for. Scales steeply with tier
-            // so a palace of tier-5 pieces is a genuine ongoing commitment.
-            Upkeep = 1.5 + t * t * 1.4,
+            // money once the build-out is paid for. Scales with the square of
+            // tier so a palace of tier-5 pieces is a genuine commitment
+            // (~23/night each) while a modest tier-2 house is not strangled
+            // (~4.6). The steeper earlier curve put a starting venue's
+            // maintenance at a quarter of its revenue once the public floor
+            // was furnished, which tipped naive play into a slow loss.
+            Upkeep = 1.0 + t * t * 0.9,
             PurchasePrice = 40 * Math.Pow(2.1, t - 1),
             Condition = 100f,
             Footprint = footprint ?? Vector2I.One
