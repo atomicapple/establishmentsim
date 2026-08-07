@@ -45,6 +45,7 @@ public partial class GameBootstrap : Node
     public PsychologicalBreakSystem BreakSystem { get; private set; }
     public PolicyTreeManager Policies { get; private set; }
     public MacroEconomyEngine Macro { get; private set; }
+    public FurnitureCatalog Catalog { get; private set; }
 
     private readonly RandomNumberGenerator _rng = new();
 
@@ -81,6 +82,7 @@ public partial class GameBootstrap : Node
         Add<RealEstateMarket>("RealEstateMarket");
 
         Venue = Add<VenueBuilding>("VenueBuilding");
+        Catalog = Add<FurnitureCatalog>("FurnitureCatalog");
         Recruitment = Add<RecruitmentService>("RecruitmentService");
         Night = Add<NightDirector>("NightDirector");
         Loop = Add<MasterGameLoop>("MasterGameLoop");

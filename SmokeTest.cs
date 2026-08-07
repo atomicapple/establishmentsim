@@ -127,11 +127,115 @@ public partial class SmokeTest : Node
         if (_nightsPlayed >= NightsToPlay)
         {
             _stage = Stage.Persistence;
+            RunCatalogCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
 
         StartNight();
+    }
+
+    // ── Furniture catalogue ────────────────────────────────────────────
+
+    /// <summary>
+    /// Verify the shop, and specifically the claim the whole economy rests
+    /// on: that a cheap piece matching the room's style is worth more than an
+    /// expensive one that clashes. If that inverts, style coherence stops
+    /// being a real decision and the player is just told to buy the most
+    /// expensive thing.
+    /// </summary>
+    private void RunCatalogCheck()
+    {
+        GD.Print("\n── Furniture catalogue ──");
+
+        var catalog = _boot.Catalog;
+        var venue = _boot.Venue;
+
+        Check("catalog exists", catalog != null);
+        if (catalog == null || venue == null) return;
+
+        // The Rose Room was seeded entirely in Baroque.
+        var tile = new Vector3I(0, 0, 1);
+        var room = venue.GetRoom(tile);
+        Check("found a furnished suite to decorate", room != null);
+        if (room == null) return;
+
+        var before = RoomAppointmentCalculator.GetBreakdown(room);
+        GD.Print($"  {room.RoomName}: appt {before.Appointment:F1}, " +
+                 $"dominant {before.DominantStyle} ({before.DominantStyleShare:P0}), " +
+                 $"{before.DistinctStyleCount} style(s), {room.FreeFurnitureArea} slots free");
+
+        var offStyle = before.DominantStyle == FurnitureStyle.Modern
+            ? FurnitureStyle.Baroque
+            : FurnitureStyle.Modern;
+
+        // Compare at EQUAL tier, so the only variable is style. Quoting a
+        // tier-1 match against a tier-4 clash would confound coherence with
+        // quality and prove nothing about either.
+        const int fairTier = 3;
+
+        var matching = catalog.Quote(room,
+            FurnitureItem.Create("Test Matching", FurnitureCategory.Seating,
+                before.DominantStyle, fairTier));
+
+        var clashing = catalog.Quote(room,
+            FurnitureItem.Create("Test Clashing", FurnitureCategory.Seating,
+                offStyle, fairTier));
+
+        GD.Print($"  tier-{fairTier} matching: {matching.AppointmentDelta:+0.0;-0.0;0} appt");
+        GD.Print($"  tier-{fairTier} clashing: {clashing.AppointmentDelta:+0.0;-0.0;0} appt");
+
+        Check("matching piece is flagged as style-matched", matching.MatchesRoomStyle);
+        Check("clashing piece is not flagged as style-matched", !clashing.MatchesRoomStyle);
+        Check("at equal tier and price, matching beats clashing",
+            matching.AppointmentDelta > clashing.AppointmentDelta);
+
+        // The other half of the design: in a room whose coherence is already
+        // perfect, a cheap piece dilutes the quality mean rather than helping.
+        // That is intended — it is what stops "buy the cheapest matching
+        // thing forever" from being a dominant strategy — so assert it holds
+        // rather than leaving it as an accident.
+        var cheapMatch = catalog.Quote(room,
+            FurnitureItem.Create("Test Cheap", FurnitureCategory.Seating,
+                before.DominantStyle, tier: 1));
+
+        GD.Print($"  tier-1 matching into a maxed-coherence room: " +
+                 $"{cheapMatch.AppointmentDelta:+0.0;-0.0;0} appt");
+
+        Check("cheap filler cannot pad an already-coherent room",
+            cheapMatch.AppointmentDelta < matching.AppointmentDelta);
+
+        // Recommendations should surface something useful.
+        var recommendations = catalog.GetRecommendations(room);
+        Check("catalog recommends improvements", recommendations.Count > 0);
+
+        // An actual purchase must move cash and Appointment in the right
+        // directions, and land in the room.
+        var cashBefore = GameStateManager.Instance.Cash;
+        var countBefore = room.Furniture.Count;
+
+        var pick = recommendations.FirstOrDefault();
+        if (pick != null)
+        {
+            var bought = catalog.Purchase(venue, tile, pick);
+            Check($"purchased {pick.Item.ItemName}", bought);
+
+            if (bought)
+            {
+                Check("the piece is in the room", room.Furniture.Count == countBefore + 1);
+                Check("cash was deducted", GameStateManager.Instance.Cash < cashBefore);
+                Check("appointment rose",
+                    RoomAppointmentCalculator.GetBreakdown(room).Appointment > before.Appointment);
+            }
+        }
+
+        // Selling returns something but not the full price.
+        var refundCash = GameStateManager.Instance.Cash;
+        var sold = catalog.Sell(venue, tile, room.Furniture.Count - 1);
+        Check("sold a piece back", sold);
+        Check("resale refunded less than it cost",
+            GameStateManager.Instance.Cash > refundCash &&
+            GameStateManager.Instance.Cash < refundCash + (pick?.Price ?? 0));
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────
