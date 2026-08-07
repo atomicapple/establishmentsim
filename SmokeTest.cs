@@ -128,6 +128,7 @@ public partial class SmokeTest : Node
         {
             _stage = Stage.Persistence;
             RunCatalogCheck();
+            RunExpansionCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -236,6 +237,76 @@ public partial class SmokeTest : Node
         Check("resale refunded less than it cost",
             GameStateManager.Instance.Cash > refundCash &&
             GameStateManager.Instance.Cash < refundCash + (pick?.Price ?? 0));
+    }
+
+    // ── Expansion gate ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Buying a floor must require cash, reputation AND a zoning permit. The
+    /// permit is the point: it is what makes cultivating the City
+    /// Commissioner worth doing, and if expansion can be bought on cash alone
+    /// the entire political layer goes back to being decorative.
+    /// </summary>
+    private void RunExpansionCheck()
+    {
+        GD.Print("\n── Expansion gate ──");
+
+        var venue = _boot.Venue;
+        var gsm = GameStateManager.Instance;
+        var politics = GetTree()?.Root?.FindChild(
+            "PoliticalInfluenceSystem", true, false) as PoliticalInfluenceSystem;
+
+        Check("political system present", politics != null);
+        if (venue == null || politics == null || gsm == null) return;
+
+        var target = venue.HighestFloor + 1;
+
+        // Plenty of money and standing, but no permit.
+        gsm.Cash = 500000;
+        gsm.Reputation = 95f;
+
+        var blocked = !venue.CanBuyFloor(target, out var reason);
+        GD.Print($"  with cash and reputation but no permit: {reason}");
+        Check("expansion is blocked without a zoning permit", blocked);
+        Check("the refusal names the commissioner",
+            reason.Contains("Commissioner", StringComparison.OrdinalIgnoreCase));
+
+        Check("buying anyway fails", !venue.BuyFloor(target));
+        Check("no floor was added", !venue.HasFloor(target));
+
+        // Cultivate the commissioner past the permit threshold.
+        politics.RestoreState(new System.Text.Json.Nodes.JsonObject
+        {
+            ["figures"] = new System.Text.Json.Nodes.JsonArray
+            {
+                new System.Text.Json.Nodes.JsonObject
+                {
+                    ["figure"] = MunicipalFigure.CityCommissioner.ToString(),
+                    ["favor"] = 80f,
+                    ["allocation"] = 0.0
+                }
+            }
+        });
+
+        Check("permit becomes available at high favour",
+            politics.IsPermitAvailable("basic_expansion"));
+
+        var allowed = venue.CanBuyFloor(target, out var stillBlocked);
+        if (!allowed) GD.Print($"  still blocked: {stillBlocked}");
+        Check("expansion is permitted once the commissioner is cultivated", allowed);
+
+        var favourBefore = politics.CommissionerFavor;
+        Check("floor purchased", venue.BuyFloor(target));
+        Check("the floor exists", venue.HasFloor(target));
+        Check("buying the floor spent commissioner favour",
+            politics.CommissionerFavor < favourBefore);
+
+        // Reputation must gate too, independently of the permit.
+        gsm.Reputation = 5f;
+        var repBlocked = !venue.CanBuyFloor(venue.HighestFloor + 1, out var repReason);
+        Check("expansion is blocked by low reputation", repBlocked);
+        Check("the refusal names reputation",
+            repReason.Contains("reputation", StringComparison.OrdinalIgnoreCase));
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────

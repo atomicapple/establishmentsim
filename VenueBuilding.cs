@@ -538,23 +538,108 @@ public partial class VenueBuilding : Node, ISaveableSystem
         return true;
     }
 
-    /// <summary>Open a floor and charge the player for it.</summary>
-    public bool BuyFloor(int floor)
+    /// <summary>Reputation required before the house may take its first extra floor.</summary>
+    [Export] public float BaseExpansionReputation { get; set; } = 35f;
+
+    /// <summary>Additional reputation demanded for each floor already built.</summary>
+    [Export] public float ReputationPerExistingFloor { get; set; } = 8f;
+
+    /// <summary>Zoning permit consumed by an expansion.</summary>
+    [Export] public string ExpansionPermit { get; set; } = "basic_expansion";
+
+    /// <summary>Reputation the house needs before it can add another storey.</summary>
+    public float GetExpansionReputationRequired() =>
+        BaseExpansionReputation + Mathf.Max(0, FloorCount - 3) * ReputationPerExistingFloor;
+
+    /// <summary>
+    /// Whether a floor can be bought right now, and if not, why.
+    ///
+    /// Expansion is deliberately a three-key lock — cash, reputation, and a
+    /// zoning permit from the City Commissioner. The permit is the important
+    /// one: PoliticalInfluenceSystem could already issue permits gated on
+    /// Commissioner favour, but nothing consumed them, so cultivating a
+    /// politician had no payoff and the whole political layer was inert. Tying
+    /// expansion to it means growth requires weeks of groundwork with someone
+    /// who produces no revenue of their own.
+    /// </summary>
+    public bool CanBuyFloor(int floor, out string reason)
     {
-        double cost = GetFloorCost(floor);
+        reason = "";
+
+        if (HasFloor(floor))
+        {
+            reason = $"Floor {floor} already exists.";
+            return false;
+        }
+
+        if (floor < MinPossibleFloor || floor > MaxPossibleFloor)
+        {
+            reason = $"Cannot build beyond floors {MinPossibleFloor} to {MaxPossibleFloor}.";
+            return false;
+        }
+
+        // Floors must be contiguous — no building a penthouse over open air.
+        if (floor != HighestFloor + 1 && floor != LowestFloor - 1)
+        {
+            reason = "Floors must be added directly above or below the building.";
+            return false;
+        }
+
         var gsm = GameStateManager.Instance;
+        var cost = GetFloorCost(floor);
 
         if (gsm != null && gsm.Cash < cost)
         {
-            Reject($"Insufficient cash for floor {floor}: need ${cost:N0}, have ${gsm.Cash:N0}.");
+            reason = $"Needs ${cost:N0}; the house has ${gsm.Cash:N0}.";
+            return false;
+        }
+
+        var required = GetExpansionReputationRequired();
+        if (gsm != null && gsm.Reputation < required)
+        {
+            reason = $"Needs a reputation of {required:F0}; the house stands at {gsm.Reputation:F0}.";
+            return false;
+        }
+
+        var politics = FindPolitics();
+        if (politics != null && !politics.IsPermitAvailable(ExpansionPermit))
+        {
+            reason = politics.ZoningPermitsUnlocked
+                ? "Commissioner Ashford will not sign off on this expansion yet."
+                : $"No zoning permit. Commissioner Ashford is at {politics.CommissionerFavor:F0} " +
+                  $"favour and wants 60 before he will discuss it.";
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Open a floor, charge for it, and spend the zoning permit.
+    /// </summary>
+    public bool BuyFloor(int floor)
+    {
+        if (!CanBuyFloor(floor, out var reason))
+        {
+            Reject(reason);
             return false;
         }
 
         if (!AddFloor(floor)) return false;
 
-        if (gsm != null) gsm.Cash -= cost;
+        var gsm = GameStateManager.Instance;
+        if (gsm != null) gsm.Cash -= GetFloorCost(floor);
+
+        // Spending the permit costs Commissioner favour, so each expansion
+        // sets the next one back and the relationship has to be rebuilt.
+        FindPolitics()?.UnlockPermit(ExpansionPermit);
+
         return true;
     }
+
+    private PoliticalInfluenceSystem FindPolitics() =>
+        GetTree()?.Root?.FindChild("PoliticalInfluenceSystem", true, false)
+            as PoliticalInfluenceSystem;
 
     // ── Placement ──────────────────────────────────────────────────────
 

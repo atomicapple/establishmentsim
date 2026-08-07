@@ -228,6 +228,16 @@ public partial class GameScene : Node
         _hud.OnStaffSelected += _ => ToggleStaffPanel(true);
     }
 
+    /// <summary>
+    /// Surface a refused action on the HUD's alert chip, so the player is
+    /// told why something did not happen instead of it silently failing.
+    /// </summary>
+    private void OnActionRejected(string reason)
+    {
+        _hud?.SetStatusChip(HudTool.Alert, reason, true);
+        GD.Print($"[GameScene] Refused: {reason}");
+    }
+
     /// <summary>A hire or departure changes who is posted, so redraw the pawns.</summary>
     private void OnRosterChanged()
     {
@@ -278,6 +288,12 @@ public partial class GameScene : Node
     {
         _view.Bind(_boot.Venue);
         _hud.Bind(_boot.Night, _boot.Venue);
+
+        // Refusals carry the reason — "Commissioner Ashford is at 25 favour
+        // and wants 60" — which is worthless if it only reaches the console.
+        _boot.Venue.OnBuildRejected += OnActionRejected;
+        _boot.Catalog.OnPurchaseRejected += OnActionRejected;
+        _boot.Recruitment.OnHireRejected += OnActionRejected;
         _decorate.Bind(_boot.Catalog, _boot.Venue);
         _staff.Bind(_boot.Recruitment);
 
