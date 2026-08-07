@@ -13,14 +13,20 @@ config_version=5
 config/name="Establishment Simulator"
 config/description="An establishment management simulation built with Godot 4 and C#."
 config/version="0.1.0"
-run/main_scene="res://test_scene.tscn"
+run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.7", "C#")
 
 [autoload]
 
 GameStateManager="*res://GameStateManager.cs"
 StaffRoster="*res://StaffRoster.cs"
-CharacterSpawner="*res://CharacterSpawner.cs"
+
+; CharacterSpawner was autoloaded here. It is a standalone 3D tech demo —
+; it builds a procedural alley, an orbit camera and a rigged GLB with dance
+; animations, and has no connection to StaffMember or any game system. With
+; the project on a 2D illustrated-isometric pipeline it renders a whole 3D
+; world underneath the dollhouse for no reason. Left in the repo for
+; reference; no longer loaded.
 
 [dotnet]
 
