@@ -1,0 +1,62 @@
+# EstablishmentSimulator — Reasonix Developer Workspace Configuration
+# Godot 4.7.1 · .NET 8 · DeepSeek
+# Cache-optimized: prefix blocks ordered for KV-cache stability
+
+# ── Provider ─────────────────────────────────────────────────────────────
+[provider]
+api           = "deepseek"
+
+# ── Model ────────────────────────────────────────────────────────────────
+[model]
+default       = "deepseek-v4-flash"
+escalation    = "deepseek-v4-pro"
+
+# ── Instructions (loaded FIRST — at conversation index 0) ────────────────
+[instructions]
+pinned = true
+files  = ["AGENTS.md"]
+# AGENTS.md contains C# coding rules, Godot conventions, and project
+# architecture. It is the single largest stable prefix block and must
+# never change mid-session to preserve KV-cache hit rates.
+detect_changes = true              # warn if AGENTS.md hash changes
+strict_mode    = true              # reject turn if pinned file modified
+
+# ── Cache Optimization ───────────────────────────────────────────────────
+[cache]
+system_prompt_prefix = true
+lock_instructions    = true
+prefix_stability_marker = true
+cache_hit_rate_target   = 0.60
+max_prefix_tokens       = 32000
+stable_tool_schema_order = true
+
+# Additional cache hardening for long sessions:
+# Freeze tool definitions after initial MCP connection handshake so the
+# schema block never changes across turns — critical for prefix stability.
+freeze_tool_schemas_after_connect = true
+
+# Evict conversation turns beyond this age from the cacheable window
+# while keeping the immutable prefix block intact.
+cache_window_turns = 20
+
+# Emit a diagnostic line each turn showing prefix hit/miss tokens
+# for monitoring KV-cache performance during development.
+diagnostic_log_prefix_cache = true
+
+# ── Workspace Context Order (prefix-block ordering) ──────────────────────
+# Files listed here are loaded in order after AGENTS.md but before
+# user messages. They form the "semi-stable" middle prefix zone.
+# Order is: project config → coding rules → tool definitions → MCP state.
+[workspace]
+context_files = [
+    "reasonix.toml",
+    "EstablishmentSimulator.csproj",
+    "project.godot"
+]
+# These rarely change mid-session — treat as cacheable with a hash check.
+context_cache_policy = "hash_verify"
+
+# ── MCP Plugin: Godot Editor MCP Server ──────────────────────────────────
+[[plugins]]
+name          = "godot-mcp-engine"
+transport     = "stdio"

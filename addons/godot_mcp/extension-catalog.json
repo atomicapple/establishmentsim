@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/IvanMurzak/MCP-Plugin-dotnet/main/schemas/extension-catalog.json",
+  "extensions": [
+    {
+      "type": "McpPluginBridge",
+      "assembly": "EstablishmentSimulator",
+      "description": "Godot MCP Editor Plugin Bridge — connects the Godot Editor to the MCP ecosystem via SignalR.",
+      "entryPoint": "res://addons/godot_mcp/plugin.cfg"
+    }
+  ]
+}

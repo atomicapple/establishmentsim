@@ -1,0 +1,24 @@
+<Project Sdk="Godot.NET.Sdk/4.7.1">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <RootNamespace>EstablishmentSimulator</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);CS8618;CS8625;CS8600;CS8601;CS8602;CS8603;CS8604;CS8619</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.3.2" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="7.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="addons\godot_mcp\extension-catalog.json">
+      <LogicalName>Godot-MCP.extensions.catalog.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>
