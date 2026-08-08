@@ -376,6 +376,7 @@ public partial class NightDirector : Node, ISaveableSystem
             GD.Print($"[NightDirector] Maintenance refurbished {repaired} pieces.");
 
         ApplySocialAndShiftEffects();
+        ApplyReputationMemory();
 
         // Age the client book so people who stop coming eventually drop off.
         FindRegulars()?.AdvanceNight();
@@ -385,6 +386,66 @@ public partial class NightDirector : Node, ISaveableSystem
 
         GD.Print($"[NightDirector] {_report}");
     }
+
+    /// <summary>
+    /// The city forgets, in both directions.
+    ///
+    /// Reputation had no recovery term. It moved only through encounter
+    /// outcomes, and arrivals scale with it — so a shock that lowered
+    /// reputation lowered the number of chances to earn it back, and lowered
+    /// it again. Over fifty nights it fell 83 → 25 and never returned. The
+    /// author of <c>EncounterResolver</c> saw this coming and kept the Poor
+    /// penalty deliberately small to slow the spiral, but nothing was ever
+    /// added on the other side of the ledger.
+    ///
+    /// This is the same fix stress needed and for the same reason: a stat
+    /// that only moves one way is a countdown, not a resource.
+    ///
+    /// Asymmetric, and that is the whole design. A symmetric pull was tried
+    /// first and it flattened the game: the ceiling fell from 84 to 60 while
+    /// the floor rose, compressing fifty nights of play into a narrow band
+    /// around the baseline and making good nights stop mattering. Bad news
+    /// fades; an earned reputation does not evaporate on its own. So the pull
+    /// upward is real and the pull downward is off by default — what takes a
+    /// good house down is bad nights, not amnesia.
+    /// </summary>
+    private void ApplyReputationMemory()
+    {
+        var gsm = GameStateManager.Instance;
+        if (gsm == null) return;
+
+        var gap = ReputationBaseline - gsm.Reputation;
+
+        var rate = gap > 0f ? ReputationRecoveryRate : ReputationDecayRate;
+        if (Mathf.IsZeroApprox(rate)) return;
+
+        var drift = gap * rate;
+        if (Mathf.IsZeroApprox(drift)) return;
+
+        gsm.Reputation += drift;
+        _report.ReputationDelta += drift;
+    }
+
+    /// <summary>
+    /// What reputation decays toward — the standing of a house nobody has an
+    /// opinion about.
+    /// </summary>
+    [Export] public float ReputationBaseline { get; set; } = 50f;
+
+    /// <summary>
+    /// How much of the gap up to the baseline is closed each night while
+    /// reputation is below it. Zero restores the old one-way behaviour where
+    /// a slump was permanent.
+    /// </summary>
+    [Export] public float ReputationRecoveryRate { get; set; } = 0.15f;
+
+    /// <summary>
+    /// The same, downward, while reputation is above the baseline. Zero by
+    /// default: a reputation the house earned should be taken away by bad
+    /// nights, not by the passage of time. Raise it if standing at the top
+    /// ever needs to cost something.
+    /// </summary>
+    [Export] public float ReputationDecayRate { get; set; }
 
     /// <summary>
     /// Close the Ledger and advance the world by one day, which is what

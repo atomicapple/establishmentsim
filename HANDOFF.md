@@ -38,7 +38,7 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 # Smoke test — 184 checks, the main safety net
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . smoke_test.tscn
 
-# Balance harness — 20 simulated nights + a seven-point verdict
+# Balance harness — 20 simulated nights + a nine-point verdict
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . balance.tscn
 
 # The same, over 50 nights — where slow drifts become visible
@@ -274,6 +274,29 @@ generator or a new `string.GetHashCode()` — .NET randomizes string hashing
 per process, and that bug got reintroduced *inside* `WorldRandom` on the
 first attempt.
 
+### The three one-way stats
+
+Three times now the same bug has appeared in a different stat: a value that
+only ever moves in one direction, so the system built on it is a countdown
+rather than a resource.
+
+| Stat | Symptom | Fix |
+|---|---|---|
+| Stress | rose from shifts, never fell; everyone eventually broke | `BaseDailyStressRecovery`, tuned to 15 |
+| Loyalty | eroded on `Adequate`, the modal outcome; roster collapsed by night 20 | `Adequate` made neutral |
+| Reputation | fell on bad nights, and arrivals scale with it, so a slump removed the chances to recover | `ReputationRecoveryRate`, asymmetric |
+
+Reputation's fix is deliberately **asymmetric** — it pulls up toward the
+baseline and does not pull down. A symmetric version was tried first and
+flattened the game: the ceiling fell from 84 to 60 while the floor rose,
+compressing fifty nights into a narrow band and making good nights stop
+mattering. Bad news fades; an earned reputation should be taken away by bad
+nights, not by time. `ReputationDecayRate` exists and is zero if that ever
+needs revisiting.
+
+**When a stat here misbehaves over a long run, check whether anything moves
+it the other way before touching its magnitudes.**
+
 **Change numbers against the harness, not intuition.** The first balance pass
 produced a −$10,308 death spiral traceable to a single ratio (stress gained
 per night vs. recovered), and two of my "obvious" corrections overshot in
@@ -315,32 +338,27 @@ characters.
 ## What's left, in the order I'd do it
 
 1. **Crisis frequency is capped by the heat economy, not the thresholds.**
-   Lowering `HeatThreshold` from 85 to 35 moved a naive run from 0 crises to
-   1 per 20 nights and 2 per 50 — and 30 gives the same 2, because each raid
-   knocks 25 heat off and heat only accrues 1–2 a night. **The threshold is
-   no longer the limiting factor.** Getting closer to a per-night decision
-   needs either more trigger sources or a Ledger decision that is not a
-   crisis at all. Sentiment never moves off 50 unattended and cash never goes
-   negative, so heat is currently doing all the work alone.
+   `HeatThreshold` at 35 gives 1 crisis per 20 nights and 2 per 50; setting
+   it to 30 gives the same 2, because each raid knocks 25 heat off and heat
+   accrues 1–2 a night, so the system self-suppresses for ~15 nights after
+   every crisis. **Lowering the number further does nothing.** Getting closer
+   to a per-night decision needs more trigger sources, or a Ledger decision
+   that is not a crisis at all. Sentiment barely moves and cash never goes
+   negative unattended, so heat is doing all the work alone.
 
-2. **Reputation has no recovery term.** Arrivals scale with it, so a shock
-   that lowers reputation lowers the number of chances to earn it back. Over
-   50 nights it falls 83 → 25 and never returns. Death spiral, or the
-   ratchet working as intended? Still a design call.
-
-3. **Balance constants predate the working harness.** Anything justified by
+2. **Balance constants predate the working harness.** Anything justified by
    a harness run before `WorldRandom` was measured against ±55% noise.
    Re-derive rather than trust.
 
-4. **Asset decimation.** Thirteen files drew GitHub's "larger than the
+3. **Asset decimation.** Thirteen files drew GitHub's "larger than the
    recommended 50 MB" warning, and four beds are excluded from the repo for
    breaking the 100 MiB hard limit. Has to happen before release regardless.
 
-5. **`RollReturningClient` iterates a Guid-keyed dictionary.** Iteration
+4. **`RollReturningClient` iterates a Guid-keyed dictionary.** Iteration
    order is stable within a process but is not part of the seed — the one
    part of a "deterministic" run that could still drift. Not observed.
 
-6. **The three `HudTool` chips** (Cleaning, Alert, Info) emit
+5. **The three `HudTool` chips** (Cleaning, Alert, Info) emit
    `OnToolRequested` and nothing consumes it.
 
 ---

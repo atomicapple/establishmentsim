@@ -226,6 +226,24 @@ public partial class BalanceHarness : Node
                 $"({_crisesAnswered} in {Nights} nights)",
             _crisesAnswered >= expectedFloor && _crisesAnswered <= Nights / 5);
 
+        // Reputation used to be a one-way street: arrivals scale with it, so
+        // a shock lowered the number of chances to earn it back. It fell 83 →
+        // 25 over fifty nights and stayed there. Both halves are asserted —
+        // that a good house still reaches a high standing, and that a bad
+        // stretch is something it can climb out of.
+        var repPeak = _samples.Count > 0 ? _samples.Max(s => s.Reputation) : 0f;
+        var repTrough = _samples.Count > 0 ? _samples.Min(s => s.Reputation) : 0f;
+        var repFinal = _samples.Count > 0 ? _samples[^1].Reputation : 0f;
+
+        GD.Print($"  reputation peak {repPeak:F0}, trough {repTrough:F0}, " +
+                 $"final {repFinal:F0}");
+
+        Verdict($"a well-run stretch earns real standing (peak {repPeak:F0})",
+            repPeak >= 70f);
+
+        Verdict($"and a bad one is survivable (trough {repTrough:F0} → {repFinal:F0})",
+            _samples.Count < 30 || repFinal > repTrough + 2f);
+
         Verdict("furniture wear does not collapse the house unattended",
             apptFirst <= 0f || apptLast > apptFirst * 0.6f);
 
