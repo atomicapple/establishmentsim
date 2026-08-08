@@ -46,6 +46,9 @@ public partial class UnionizationManager : Node, ISaveableSystem
     public double DailyRevenueLossDuringStrike { get; set; } = 200.0;
     public float DailyReputationLossDuringStrike { get; set; } = 1.5f;
 
+    /// <summary>What conceding to every demand costs up front.</summary>
+    public double ConcessionCost { get; set; } = 2000.0;
+
     public override void _Ready()
     {
         _rng.Randomize();
@@ -81,7 +84,12 @@ public partial class UnionizationManager : Node, ISaveableSystem
             TriggerStrike();
     }
 
-    private float CalculateRiskDelta()
+    /// <summary>
+    /// Tonight's change in union risk, before it is applied. Public so the
+    /// UI can label the meter with the real number instead of keeping a
+    /// second copy of this arithmetic that quietly drifts out of step.
+    /// </summary>
+    public float CalculateRiskDelta()
     {
         float delta = 0f;
 
@@ -125,11 +133,27 @@ public partial class UnionizationManager : Node, ISaveableSystem
         GD.Print($"[Unionization] STRIKE! {StrikingStaffCount} staff walking out. Risk={_unionRisk:F1}");
     }
 
+    /// <summary>
+    /// Start a strike from outside the daily tick.
+    ///
+    /// The tick is the only *organic* route, and it needs weeks of bad
+    /// conditions to get there — which made the three resolution methods
+    /// impossible to exercise in a test or a capture run. This is that entry
+    /// point. It is a no-op if a strike is already running.
+    /// </summary>
+    public void ForceStrike()
+    {
+        if (_strikeActive) return;
+        TriggerStrike();
+    }
+
     private void ApplyStrikeEffects(double cash)
     {
-        // Revenue loss
-        if (GameStateManager.Instance != null)
-            GameStateManager.Instance.Cash -= DailyRevenueLossDuringStrike;
+        // Through the ledger, not straight off the cash pile: a strike that
+        // drains $200 a night with no line item is money the player watches
+        // vanish with no explanation anywhere in the books.
+        SpendOnDispute(DailyRevenueLossDuringStrike,
+            $"Strike day {StrikeDurationDays} — {StrikingStaffCount} staff out");
 
         // Reputation loss
         if (GameStateManager.Instance != null)
@@ -201,8 +225,7 @@ public partial class UnionizationManager : Node, ISaveableSystem
         UnionRisk = 0f;
 
         // Cash payout
-        if (GameStateManager.Instance != null)
-            GameStateManager.Instance.Cash -= 2000;
+        SpendOnDispute(ConcessionCost, "Full concession to the strike committee");
 
         // Staff fully satisfied
         foreach (var staff in FindAllStaff())
@@ -222,6 +245,20 @@ public partial class UnionizationManager : Node, ISaveableSystem
     }
 
     // ── Utility ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Pay a labour-dispute cost through the ledger so it shows up in the
+    /// books, falling back to raw cash only if the ledger is missing.
+    /// </summary>
+    private void SpendOnDispute(double amount, string description)
+    {
+        if (amount <= 0) return;
+
+        var ledger = GetTree()?.Root?.FindChild("FinancialLedger", true, false) as FinancialLedger;
+
+        if (ledger != null) ledger.RecordExpense(ExpenseCategory.StaffSalaries, amount, description);
+        else if (GameStateManager.Instance != null) GameStateManager.Instance.Cash -= amount;
+    }
 
     private float GetAverageStaffStress()
     {

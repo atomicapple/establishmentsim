@@ -64,13 +64,20 @@ Self-driving screenshot runs. Each sets flags on `GameScene` and quits.
 
 `main_capture` · `closeup_capture` · `ledger_capture` · `staff_capture` ·
 `hiring_capture` · `influence_capture` · `policy_capture` ·
-`patrons_capture` · `licences_capture`
+`patrons_capture` · `licences_capture` · `union_capture` ·
+`union_strike_capture`
 
 Output lands in
 `C:\Users\tobia\AppData\Roaming\Godot\app_userdata\Establishment Simulator\screenshots\`.
 
 `patrons_capture` plays 12 compressed nights before shooting, because the
-book is empty on night one by definition.
+book is empty on night one by definition. `union_strike_capture` calls
+`UnionizationManager.ForceStrike()` for the same reason — a strike needs
+weeks of mistreatment to arrive on its own, so there is no other way to
+photograph (or test) the resolutions.
+
+Screenshots only work **windowed**. A headless run reports "Viewport
+produced no image" and writes nothing.
 
 ---
 
@@ -143,7 +150,7 @@ Deleted: `IsometricDollhouseView`, `VenuePawnLayer`, `EncounterCloudVfx`.
 
 ### Side panels
 
-Six, all sharing the left column through `GameScene.ShowOnly()`:
+Seven, all sharing the left column through `GameScene.ShowOnly()`:
 
 | Key | Panel |
 |---|---|
@@ -153,9 +160,14 @@ Six, all sharing the left column through `GameScene.ShowOnly()`:
 | `P` | `PolicyPanel` — the Panderer's Code |
 | `B` | `PatronsPanel` — the book |
 | `L` | `LicencesPanel` — ceilings |
+| `U` | `UnionPanel` — labour disputes |
 
 Only room-click has a real affordance; the rest are keys. **Giving these
 discoverable buttons is worthwhile UI work.**
+
+`UnionPanel` is the exception that also opens itself: `OnStrikeTriggered`
+raises the alert chip and brings the panel up, because a strike is the one
+event that acts on the player unbidden.
 
 ---
 
@@ -238,21 +250,20 @@ characters.
 
 ## What's left, in the order I'd do it
 
-1. **Unionization has no UI.** Strikes can already fire at the player with no
-   way to negotiate, concede, or hire strikebreakers — all three methods
-   exist on `UnionizationManager`. A system that *acts on* the player with no
-   response available is worse than one that's merely absent.
-
-2. **`CrisisNarrativeDirector` can deadlock.** `_crisisActive` latches true on
+1. **`CrisisNarrativeDirector` can deadlock.** `_crisisActive` latches true on
    trigger and only clears in `ExecuteChoice`. If no scenario ever arrives —
    it expects an out-of-process LLM to read `<<<MCP_CRISIS_PAYLOAD>>>` from
    stdout — it hangs permanently. Needs the fallback path to be the primary
    one. It is currently **not instantiated**, so it is latent, not live.
 
-3. **`GenerateRandomClient` has 8 names.** The patrons book is premised on
+2. **`GenerateRandomClient` has 8 names.** The patrons book is premised on
    knowing people; the same name already appears as two distinct patrons.
 
-4. **Discoverable buttons for the side panels.** Five of six are key-only.
+3. **Discoverable buttons for the side panels.** Six of seven are key-only.
+
+4. **`StrikingStaffCount` is frozen at trigger time** and never re-derived, so
+   staff who leave mid-strike still count as walked out. The panel clamps the
+   display; the number itself is still wrong.
 
 5. **Furniture wear vs. maintenance** is tuned so Appointment drifts down
    slowly. Worth re-checking over a 50-night run rather than 20.

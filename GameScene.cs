@@ -52,6 +52,16 @@ public partial class GameScene : Node
     /// <summary>Capture runs only: open the licences panel.</summary>
     [Export] public bool CaptureLicencesPanel { get; set; }
 
+    /// <summary>Capture runs only: open the labour panel.</summary>
+    [Export] public bool CaptureUnionPanel { get; set; }
+
+    /// <summary>
+    /// Capture runs only: force a strike before opening the labour panel, so
+    /// the shot shows the three resolutions rather than a calm risk meter.
+    /// A strike takes weeks of bad conditions to arrive on its own.
+    /// </summary>
+    [Export] public bool CaptureUnionStrike { get; set; }
+
     /// <summary>
     /// Capture runs only: play this many compressed nights, then open the
     /// patrons book. Clients need repeat visits before they are worth
@@ -81,6 +91,7 @@ public partial class GameScene : Node
     private PolicyPanel _policy;
     private PatronsPanel _patrons;
     private LicencesPanel _licences;
+    private UnionPanel _union;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -168,6 +179,9 @@ public partial class GameScene : Node
         _licences = new LicencesPanel { Name = "LicencesPanel" };
         panelLayer.AddChild(MakeSidePanelHost("LicencesHost", LicencesPanel.PanelWidth, _licences));
 
+        _union = new UnionPanel { Name = "UnionPanel" };
+        panelLayer.AddChild(MakeSidePanelHost("UnionHost", UnionPanel.PanelWidth, _union));
+
         _screenshot = new ScreenshotCapture
         {
             Name = "ScreenshotCapture",
@@ -248,6 +262,9 @@ public partial class GameScene : Node
         _licences.OnCloseRequested += () => _licences.Visible = false;
         _licences.OnLicenceApplied += _ => _hud?.RefreshAll();
 
+        _union.OnCloseRequested += () => _union.Visible = false;
+        _union.OnDisputeResolved += OnDisputeResolved;
+
         // The HUD's roster controls open the staff panel.
         _hud.OnStaffSelected += _ => ToggleStaffPanel(true);
     }
@@ -283,6 +300,34 @@ public partial class GameScene : Node
 
     private void ToggleLicencesPanel(bool show) => ShowOnly(show ? _licences : null);
 
+    private void ToggleUnionPanel(bool show) => ShowOnly(show ? _union : null);
+
+    /// <summary>
+    /// A strike is the one thing in the game that acts on the player without
+    /// being asked, so it opens its own panel. Finding out a third of the
+    /// house has walked out only because you happened to press U is not a
+    /// notification.
+    /// </summary>
+    private void OnStrikeTriggered(float risk, int strikingStaffCount)
+    {
+        _hud?.SetStatusChip(HudTool.Alert,
+            $"Strike — {strikingStaffCount} out", true);
+
+        ToggleUnionPanel(true);
+        GD.Print($"[GameScene] Strike at {risk:F0}% risk: {strikingStaffCount} staff out.");
+    }
+
+    /// <summary>
+    /// A settled strike moves salaries, satisfaction, heat and sentiment at
+    /// once, so refresh everything that reads any of them.
+    /// </summary>
+    private void OnDisputeResolved(string method)
+    {
+        _hud?.RefreshAll();
+        _staff?.Refresh();
+        GD.Print($"[GameScene] Labour dispute resolved by {method}.");
+    }
+
     /// <summary>
     /// A signed policy changes standing modifiers across the whole house, so
     /// refresh everything that reads them.
@@ -306,12 +351,14 @@ public partial class GameScene : Node
         _policy.Visible = panel == _policy;
         _patrons.Visible = panel == _patrons;
         _licences.Visible = panel == _licences;
+        _union.Visible = panel == _union;
 
         if (panel == _staff) _staff.Refresh();
         else if (panel == _influence) _influence.Refresh();
         else if (panel == _policy) _policy.Refresh();
         else if (panel == _patrons) _patrons.Refresh();
         else if (panel == _licences) _licences.Refresh();
+        else if (panel == _union) _union.Refresh();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -339,6 +386,10 @@ public partial class GameScene : Node
 
             case Key.L:
                 ToggleLicencesPanel(!_licences.Visible);
+                break;
+
+            case Key.U:
+                ToggleUnionPanel(!_union.Visible);
                 break;
 
             case Key.Escape:
@@ -377,6 +428,11 @@ public partial class GameScene : Node
         _policy.Bind(_boot.Policies);
         _patrons.Bind(_boot.Regulars);
         _licences.Bind(_boot.Licences);
+        _union.Bind(_boot.Union);
+
+        // The strike fired into an empty room before this — the signal had no
+        // listeners anywhere, so the house could go on strike in silence.
+        if (_boot.Union != null) _boot.Union.OnStrikeTriggered += OnStrikeTriggered;
 
         var night = _boot.Night;
         night.OnEncounterStarted += OnEncounterStarted;
@@ -448,6 +504,14 @@ public partial class GameScene : Node
         if (CaptureLicencesPanel)
         {
             ToggleLicencesPanel(true);
+            return;
+        }
+
+        if (CaptureUnionPanel)
+        {
+            if (CaptureUnionStrike) _boot.Union?.ForceStrike();
+
+            ToggleUnionPanel(true);
             return;
         }
 

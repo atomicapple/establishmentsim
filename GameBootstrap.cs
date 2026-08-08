@@ -49,6 +49,7 @@ public partial class GameBootstrap : Node
     public CharacterLibrary Characters { get; private set; }
     public RegularsRegistry Regulars { get; private set; }
     public FacilityLicences Licences { get; private set; }
+    public UnionizationManager Union { get; private set; }
 
     private readonly RandomNumberGenerator _rng = new();
 
@@ -78,7 +79,7 @@ public partial class GameBootstrap : Node
         Heat = Add<HeatSystem>("HeatSystem");
 
         Add<PoliticalInfluenceSystem>("PoliticalInfluenceSystem");
-        Add<UnionizationManager>("UnionizationManager");
+        Union = Add<UnionizationManager>("UnionizationManager");
         Add<BlackmailNetwork>("BlackmailNetwork");
         Add<SyndicateRivalAI>("SyndicateRivalAI");
         Add<NarrativeArcTracker>("NarrativeArcTracker");

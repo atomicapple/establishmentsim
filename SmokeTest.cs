@@ -134,6 +134,7 @@ public partial class SmokeTest : Node
             RunAmbitionCheck();
             RunNarrativeCheck();
             RunLicenceCheck();
+            RunUnionCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -774,6 +775,78 @@ public partial class SmokeTest : Node
         Check("restoring a save re-applies the ceilings",
             catalog.MaxAvailableTier == 4 && roster.RosterCap > 6 &&
             RoomModule.FurnitureSlotsPerTile > 2);
+    }
+
+    /// <summary>
+    /// The three strike resolutions. Every one of them had zero callers in
+    /// the whole repo until the labour panel was built, so none had ever
+    /// executed — which is exactly the condition that hid two fatal bugs in
+    /// the policy tree. Each is exercised here from a forced strike.
+    /// </summary>
+    private void RunUnionCheck()
+    {
+        GD.Print("\n── Labour disputes ──");
+
+        var union = _boot.Union;
+        var gsm = GameStateManager.Instance;
+        var roster = StaffRoster.Instance;
+
+        Check("unionization system present", union != null);
+        if (union == null || gsm == null || roster == null) return;
+
+        Check("no strike on a well-run house", !union.StrikeActive);
+
+        // ── Negotiate ──────────────────────────────────────────────────
+        var opexBefore = _boot.Policies?.PermanentOpexModifier ?? 0;
+
+        union.ForceStrike();
+        Check("a forced strike starts", union.StrikeActive);
+        Check("someone actually walked out", union.StrikingStaffCount > 0);
+        Check("the walkout cannot exceed the roster",
+            union.StrikingStaffCount <= roster.Count);
+
+        union.NegotiateProfitSharing();
+        Check("negotiating ends the strike", !union.StrikeActive);
+        Check("profit-sharing costs permanent OPEX",
+            (_boot.Policies?.PermanentOpexModifier ?? 0) > opexBefore);
+
+        // ── Strikebreakers ─────────────────────────────────────────────
+        var heatBefore = gsm.Heat;
+        var satisfactionBefore = roster.GetAverageSatisfaction();
+
+        union.ForceStrike();
+        union.HireStrikebreakers();
+
+        Check("strikebreakers end the strike", !union.StrikeActive);
+        Check($"strikebreakers raise heat ({heatBefore:F0} → {gsm.Heat:F0})",
+            gsm.Heat > heatBefore);
+        Check("strikebreakers cost goodwill",
+            roster.GetAverageSatisfaction() < satisfactionBefore);
+
+        // ── Concede — the only one with a cash price ───────────────────
+        gsm.Cash = 50000;
+        var revenueBefore = _boot.Ledger.GetTotalExpenses();
+
+        union.ForceStrike();
+        union.ConcedeToDemands();
+
+        Check("conceding ends the strike", !union.StrikeActive);
+        Check("conceding clears the risk entirely", union.UnionRisk <= 0.01f);
+        Check("the concession is booked in the ledger, not taken off cash silently",
+            _boot.Ledger.GetTotalExpenses() >= revenueBefore + union.ConcessionCost);
+
+        // ── A resolution must be reachable, not a dead end ─────────────
+        union.ForceStrike();
+        var strikeExpenses = _boot.Ledger.GetTotalExpenses();
+        gsm.AdvanceDay();
+
+        Check("a running strike bills the house through the ledger",
+            _boot.Ledger.GetTotalExpenses() > strikeExpenses);
+
+        union.ConcedeToDemands();
+        Check("the house can always settle", !union.StrikeActive);
+
+        GD.Print($"  all three resolutions exercised — {union}");
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────
