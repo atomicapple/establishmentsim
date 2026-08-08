@@ -35,7 +35,7 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 # The game, windowed
 ./Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x900 main.tscn
 
-# Smoke test — 206 checks, the main safety net
+# Smoke test — 216 checks, the main safety net
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . smoke_test.tscn
 
 # Balance harness — 20 simulated nights + a nine-point verdict
@@ -87,7 +87,7 @@ Self-driving screenshot runs. Each sets flags on `GameScene` and quits.
 `hiring_capture` · `influence_capture` · `policy_capture` ·
 `patrons_capture` · `licences_capture` · `union_capture` ·
 `union_strike_capture` · `crackdown_capture` · `crisis_capture` ·
-`help_capture`
+`help_capture` · `negotiation_capture`
 
 Output lands in
 `C:\Users\tobia\AppData\Roaming\Godot\app_userdata\Establishment Simulator\screenshots\`.
@@ -331,6 +331,23 @@ fix, not a lower number. A 50-night run now faces five.
 Adding them exposed that the crisis costs were authored for a
 once-a-campaign event: at five per fifty nights the house went bankrupt at
 −$3,668. Every "pay it away" cash line was scaled to roughly 55%.
+
+### Two modal screens above the HUD, and a third
+
+`NightLedgerScreen`, `CrisisScreen` and `NegotiationScreen` are all
+`CanvasLayer`s that take a real pause. Each shadows `Hide()` deliberately,
+because a plain visibility toggle would leave the game frozen behind an
+invisible window.
+
+`NegotiationScreen` parks the night: `NightDirector` holds the encounter in
+`_pending` and does nothing until `ResolveNegotiation` or `DeclineClient`
+answers. **`NightDirector.NegotiationUiPresent` is what decides whether a VIP
+parks at all**, and it is set explicitly by `GameScene`. It was originally
+inferred from `GetSignalConnectionList`, which does *not* filter to the
+signal you name — so the headless harness, which connects other signals on
+that node, read as "a UI is present", parked every VIP forever and dropped
+them. All nine balance verdicts moved and nothing in the logs explained it.
+**Do not infer the presence of a listener from Godot's connection list.**
 
 ### The three one-way stats
 

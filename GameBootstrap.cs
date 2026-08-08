@@ -62,6 +62,7 @@ public partial class GameBootstrap : Node
     public FacilityLicences Licences { get; private set; }
     public UnionizationManager Union { get; private set; }
     public CrisisNarrativeDirector Crises { get; private set; }
+    public ClientNegotiationHandler Negotiation { get; private set; }
 
     private readonly RandomNumberGenerator _rng = new();
 
@@ -99,6 +100,10 @@ public partial class GameBootstrap : Node
         Add<SyndicateRivalAI>("SyndicateRivalAI");
         Add<NarrativeArcTracker>("NarrativeArcTracker");
         Crises = Add<CrisisNarrativeDirector>("CrisisNarrativeDirector");
+
+        // 600 lines of tuned haggling maths with no caller until the door
+        // negotiation was built.
+        Negotiation = Add<ClientNegotiationHandler>("ClientNegotiationHandler");
         Regulars = Add<RegularsRegistry>("RegularsRegistry");
         Licences = Add<FacilityLicences>("FacilityLicences");
         Add<RealEstateMarket>("RealEstateMarket");

@@ -119,6 +119,7 @@ public partial class GameScene : Node
     private LicencesPanel _licences;
     private UnionPanel _union;
     private CrisisScreen _crisis;
+    private NegotiationScreen _negotiation;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -183,6 +184,11 @@ public partial class GameScene : Node
         // before they are allowed to move on to the next night.
         _crisis = new CrisisScreen { Name = "CrisisScreen" };
         AddChild(_crisis);
+
+        // Above the crisis screen: a client is standing at the door while
+        // this is up, so it is the most immediate thing on screen.
+        _negotiation = new NegotiationScreen { Name = "NegotiationScreen" };
+        AddChild(_negotiation);
 
         // Side panels are Controls, so they need a CanvasLayer to sit above
         // the 3D viewport.
@@ -348,6 +354,9 @@ public partial class GameScene : Node
         _crisis.OnChoiceTaken += OnCrisisChoiceTaken;
         _crisis.OnDismissed += OnCrisisDismissed;
 
+        _negotiation.OnPriceAgreed += price => _boot?.Night?.ResolveNegotiation(price);
+        _negotiation.OnClientRefused += () => _boot?.Night?.DeclineClient();
+
         _decorate.OnRoomChanged += OnDecorateRoomChanged;
         _decorate.OnCloseRequested += () => _decorate.Visible = false;
 
@@ -508,6 +517,37 @@ public partial class GameScene : Node
             TogglePanel(panel);
             return;
         }
+    }
+
+    // ── At the door ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A client worth haggling over has arrived. The night is parked until
+    /// the screen answers, so this must always end in either
+    /// <c>ResolveNegotiation</c> or <c>DeclineClient</c>.
+    /// </summary>
+    private void OnNegotiationRequested(
+        string clientName, double asking, double fairPrice, double budget, string staffName)
+    {
+        var night = _boot?.Night;
+        var client = night?.NegotiationClient;
+
+        if (client == null)
+        {
+            night?.DeclineClient();
+            return;
+        }
+
+        var staff = StaffRoster.Instance?.GetAll()
+            .FirstOrDefault(s => s.StaffName == staffName);
+
+        var room = _boot?.Venue?.Rooms.Values
+            .FirstOrDefault(r => _boot.Venue.IsRevenueGenerating(r));
+
+        // A screen that refuses to open would strand the night, so falling
+        // back to the asking price is the safe failure rather than silence.
+        if (!_negotiation.Show(client, staff, room, asking))
+            night.ResolveNegotiation(asking);
     }
 
     // ── The three tools ────────────────────────────────────────────────
@@ -686,6 +726,10 @@ public partial class GameScene : Node
         night.OnNightConcluded += OnNightConcluded;
         night.OnClientArrived += OnClientArrived;
         night.OnPhaseChanged += OnPhaseChanged;
+        night.OnNegotiationRequested += OnNegotiationRequested;
+        night.NegotiationUiPresent = true;
+
+        _negotiation.Bind(_boot.Negotiation);
 
         _view.FocusedFloor = InitialFloor;
         FitCameraToBuilding();

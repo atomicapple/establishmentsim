@@ -132,6 +132,14 @@ public partial class NightDirector : Node, ISaveableSystem
     [Signal]
     public delegate void OnNightConcludedEventHandler(int night, double revenue, double net);
 
+    /// <summary>
+    /// A client worth haggling over is at the door. The night parks until
+    /// <see cref="ResolveNegotiation"/> or <see cref="DeclineClient"/> answers.
+    /// </summary>
+    [Signal]
+    public delegate void OnNegotiationRequestedEventHandler(
+        string clientName, double asking, double fairPrice, double budget, string staffName);
+
     // ── Configuration ──────────────────────────────────────────────────
 
     /// <summary>Length of the Service beat in seconds at 1× time scale.</summary>
@@ -686,6 +694,80 @@ public partial class NightDirector : Node, ISaveableSystem
         return appointment >= client.ExpectedAppointment - 12f;
     }
 
+    /// <summary>
+    /// Budget above which a client is worth interrupting the player for.
+    ///
+    /// Haggling over every arrival would be seven modals a night and would
+    /// stop being a decision by the third one. The design has always called
+    /// for VIPs only — three to five a night — with everyone else resolved on
+    /// the numbers the player already set during Preparation.
+    /// </summary>
+    [Export] public double VipBudgetThreshold { get; set; } = 320.0;
+
+    /// <summary>Whether this client is worth stopping the night for.</summary>
+    public bool IsVip(ClientProfile client) => client != null && client.Budget >= VipBudgetThreshold;
+
+    /// <summary>
+    /// Whether anything is listening for <see cref="OnNegotiationRequested"/>
+    /// and can actually answer it. Set by the scene that owns the screen.
+    ///
+    /// Explicit, rather than inferred from the signal's connection list.
+    /// GetSignalConnectionList does not filter to the signal asked for the
+    /// way it appears to, so a headless harness — which connects other
+    /// signals on this node — read as "a UI is present", parked every VIP
+    /// forever, and silently dropped them. The economy shifted underneath the
+    /// balance verdicts with nothing in the logs to say why.
+    /// </summary>
+    public bool NegotiationUiPresent { get; set; }
+
+    /// <summary>An encounter held back while the player decides a price.</summary>
+    private sealed class PendingNegotiation
+    {
+        public VenueBuilding Venue;
+        public ShiftAssignment Assignment;
+        public StaffMember Staff;
+        public RoomModule Room;
+        public ClientProfile Client;
+        public double Asking;
+    }
+
+    private PendingNegotiation _pending;
+
+    /// <summary>Whether the night is waiting on a price.</summary>
+    public bool AwaitingNegotiation => _pending != null;
+
+    /// <summary>The client currently at the door, if any.</summary>
+    public ClientProfile NegotiationClient => _pending?.Client;
+
+    /// <summary>Accept a price and let the encounter begin.</summary>
+    public void ResolveNegotiation(double agreedPrice)
+    {
+        var pending = _pending;
+        if (pending == null) return;
+
+        _pending = null;
+        BeginEncounter(pending.Venue, pending.Assignment, pending.Staff,
+                       pending.Room, pending.Client, agreedPrice);
+    }
+
+    /// <summary>
+    /// Turn the client away. They leave, the staff member is freed, and the
+    /// night carries on without them.
+    /// </summary>
+    public void DeclineClient()
+    {
+        var pending = _pending;
+        if (pending == null) return;
+
+        _pending = null;
+        pending.Assignment.IsBusy = false;
+
+        _lobbyPatrons.Remove(pending.Client);
+        _report.ClientsTurnedAway++;
+
+        EmitSignal(SignalName.OnClientTurnedAway, pending.Client.Name, "refused at the door");
+    }
+
     private void StartEncounter(
         VenueBuilding venue, ShiftAssignment assignment,
         StaffMember staff, RoomModule room, ClientProfile client)
@@ -694,6 +776,36 @@ public partial class NightDirector : Node, ISaveableSystem
 
         var price = venue.GetSuggestedPrice(room, BaseRoomPrice);
         price = Math.Min(price, client.Budget);
+
+        // A VIP is worth a conversation — but only where there is a screen
+        // to hold it. A headless run has nobody to answer, and a parked
+        // encounter there is simply a lost client.
+        if (IsVip(client) && NegotiationUiPresent && _pending == null)
+        {
+            _pending = new PendingNegotiation
+            {
+                Venue = venue,
+                Assignment = assignment,
+                Staff = staff,
+                Room = room,
+                Client = client,
+                Asking = price
+            };
+
+            EmitSignal(SignalName.OnNegotiationRequested,
+                client.Name, price, client.FairPrice, client.Budget,
+                staff?.StaffName ?? "the house");
+
+            return;
+        }
+
+        BeginEncounter(venue, assignment, staff, room, client, price);
+    }
+
+    private void BeginEncounter(
+        VenueBuilding venue, ShiftAssignment assignment,
+        StaffMember staff, RoomModule room, ClientProfile client, double price)
+    {
 
         var duration = EncounterDurationSeconds * (0.8f + _rng.Randf() * 0.4f);
 

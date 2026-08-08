@@ -171,6 +171,7 @@ public partial class SmokeTest : Node
             RunCityCheck();
             RunCrisisCheck();
             RunOpeningCheck();
+            RunNegotiationCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -1179,6 +1180,72 @@ public partial class SmokeTest : Node
         // should cost most of the opening balance, not a fraction of it.
         Check("and is not left with a trivial decision",
             total >= GameStateManager.StartingCash * 0.35);
+    }
+
+    /// <summary>
+    /// The door negotiation, and specifically that it stays out of the way
+    /// when there is nobody to answer it.
+    ///
+    /// A VIP parks the night until a screen resolves the price. The first
+    /// version decided whether a screen existed by asking
+    /// GetSignalConnectionList, which does not filter to the signal named —
+    /// so this harness, which connects other signals on the same node, read
+    /// as "a UI is present". Every VIP was parked forever and silently
+    /// dropped, the economy moved underneath the balance verdicts, and
+    /// nothing in the logs said why. Hence an explicit flag, and hence this.
+    /// </summary>
+    private void RunNegotiationCheck()
+    {
+        GD.Print("\n── At the door ──");
+
+        var night = _boot.Night;
+        var handler = _boot.Negotiation;
+
+        Check("the negotiation handler is instantiated", handler != null);
+        if (night == null || handler == null) return;
+
+        Check("no UI is claimed in a headless run", !night.NegotiationUiPresent);
+        Check("and nothing is parked", !night.AwaitingNegotiation);
+
+        // ── Who counts as worth stopping for ───────────────────────────
+        var pauper = ClientNegotiationHandler.GenerateRandomClient();
+        pauper.Budget = night.VipBudgetThreshold - 1;
+
+        var whale = ClientNegotiationHandler.GenerateRandomClient();
+        whale.Budget = night.VipBudgetThreshold + 1;
+
+        Check("an ordinary client is not a VIP", !night.IsVip(pauper));
+        Check("a well-funded one is", night.IsVip(whale));
+        Check("and a null client is not", !night.IsVip(null));
+
+        // ── Resolving nothing must do nothing ──────────────────────────
+        var cashBefore = GameStateManager.Instance.Cash;
+        night.ResolveNegotiation(500);
+        night.DeclineClient();
+
+        Check("resolving with nothing pending is harmless",
+            Mathf.IsEqualApprox((float)GameStateManager.Instance.Cash, (float)cashBefore));
+
+        // ── The odds are real, and ordered ─────────────────────────────
+        var staff = StaffRoster.Instance?.GetAll().FirstOrDefault();
+        var room = _boot.Venue.GetRoom(new Vector3I(0, 0, 1));
+
+        Check("a negotiation can be opened", handler.StartNegotiation(whale, staff, room));
+
+        var atFair = handler.CalculateAcceptProbability(whale.FairPrice);
+        var above = handler.CalculateAcceptProbability(whale.FairPrice * 1.5);
+        var wayAbove = handler.CalculateAcceptProbability(whale.FairPrice * 3.0);
+
+        GD.Print($"  {whale.Name}: fair ${whale.FairPrice:N0} → {atFair:P0}, " +
+                 $"×1.5 → {above:P0}, ×3 → {wayAbove:P0}");
+
+        Check("asking more is never more likely to be accepted",
+            above <= atFair && wayAbove <= above);
+
+        Check("and the odds stay a probability",
+            atFair is >= 0f and <= 1f && wayAbove is >= 0f and <= 1f);
+
+        handler.CancelNegotiation();
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────
