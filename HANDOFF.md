@@ -35,7 +35,7 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 # The game, windowed
 ./Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x900 main.tscn
 
-# Smoke test — 184 checks, the main safety net
+# Smoke test — 198 checks, the main safety net
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . smoke_test.tscn
 
 # Balance harness — 20 simulated nights + a nine-point verdict
@@ -274,6 +274,36 @@ generator or a new `string.GetHashCode()` — .NET randomizes string hashing
 per process, and that bug got reintroduced *inside* `WorldRandom` on the
 first attempt.
 
+### Crises
+
+Six trigger sources, three polled on the daily tick and two event-driven:
+
+| Trigger | Fires on | Route |
+|---|---|---|
+| `PoliceRaid` | heat > 35 | poll |
+| `WorkerWalkout` | a strike is running | poll |
+| `PublicScandal` | sentiment < 35 | poll |
+| `ReputationCollapse` | reputation < 30 | poll |
+| `FinancialCollapse` | cash < 0 | poll |
+| `StaffBreakdown` | `OnPsychologicalBreak` | signal |
+| `RivalAttack` | `OnRivalAction`, severity ≥ 7 | signal |
+
+The two signal-driven ones **cannot** be polled: a break and a rival's move
+are moments, not states, and by the next daily tick the emitting system has
+applied its consequences and moved on.
+
+`RaiseCrisis` is the single gate all seven pass through, so a new source
+cannot bypass the cooldown or the one-at-a-time rule.
+
+Heat alone gave two crises per fifty nights and **no threshold could improve
+that** — each raid takes 25 heat off and heat accrues 1–2 a night, so the
+system suppressed itself for fifteen nights afterwards. More sources was the
+fix, not a lower number. A 50-night run now faces five.
+
+Adding them exposed that the crisis costs were authored for a
+once-a-campaign event: at five per fifty nights the house went bankrupt at
+−$3,668. Every "pay it away" cash line was scaled to roughly 55%.
+
 ### The three one-way stats
 
 Three times now the same bug has appeared in a different stat: a value that
@@ -337,22 +367,19 @@ characters.
 
 ## What's left, in the order I'd do it
 
-1. **Crisis frequency is capped by the heat economy, not the thresholds.**
-   `HeatThreshold` at 35 gives 1 crisis per 20 nights and 2 per 50; setting
-   it to 30 gives the same 2, because each raid knocks 25 heat off and heat
-   accrues 1–2 a night, so the system self-suppresses for ~15 nights after
-   every crisis. **Lowering the number further does nothing.** Getting closer
-   to a per-night decision needs more trigger sources, or a Ledger decision
-   that is not a crisis at all. Sentiment barely moves and cash never goes
-   negative unattended, so heat is doing all the work alone.
-
-2. **Balance constants predate the working harness.** Anything justified by
+1. **Balance constants predate the working harness.** Anything justified by
    a harness run before `WorldRandom` was measured against ±55% noise.
    Re-derive rather than trust.
 
-3. **Asset decimation.** Thirteen files drew GitHub's "larger than the
+2. **Asset decimation.** Thirteen files drew GitHub's "larger than the
    recommended 50 MB" warning, and four beds are excluded from the repo for
    breaking the 100 MiB hard limit. Has to happen before release regardless.
+
+3. **The harness always takes choice 0 in a crisis**, which is the "pay it
+   away" option in every scenario and therefore the most expensive. That
+   made it the worst-case financial model, and it is what exposed the crisis
+   costs as too high — but it also means the reported cash line is a floor,
+   not a typical run. Worth a second policy (cheapest option) to bracket it.
 
 4. **`RollReturningClient` iterates a Guid-keyed dictionary.** Iteration
    order is stable within a process but is not part of the seed — the one

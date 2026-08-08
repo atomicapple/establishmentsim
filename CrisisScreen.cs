@@ -253,6 +253,8 @@ public partial class CrisisScreen : CanvasLayer
         "WorkerWalkout" => "THE HOUSE",
         "RivalAttack" => "A RIVAL",
         "FinancialCollapse" => "THE BOOKS",
+        "StaffBreakdown" => "ONE OF YOURS",
+        "ReputationCollapse" => "THE EMPTY ROOMS",
         _ => "TONIGHT"
     };
 

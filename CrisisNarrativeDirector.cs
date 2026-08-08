@@ -5,7 +5,22 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 /// <summary>Crisis trigger type.</summary>
-public enum CrisisTrigger { PoliceRaid, PublicScandal, WorkerWalkout, RivalAttack, FinancialCollapse, None }
+public enum CrisisTrigger
+{
+    PoliceRaid,
+    PublicScandal,
+    WorkerWalkout,
+    RivalAttack,
+    FinancialCollapse,
+
+    /// <summary>Someone on the roster broke. Fired from the break system.</summary>
+    StaffBreakdown,
+
+    /// <summary>The house's name is gone and nobody is coming.</summary>
+    ReputationCollapse,
+
+    None
+}
 
 /// <summary>A single crisis scenario choice for MCP transmission.</summary>
 public class CrisisScenario
@@ -60,8 +75,64 @@ public partial class CrisisNarrativeDirector : Node
     {
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.OnDailyTick += OnDailyTick;
+
+        // Deferred: these are sibling systems under GameBootstrap and the
+        // node names are load-bearing, so the lookup has to happen after the
+        // whole set has been constructed rather than during our own _Ready.
+        CallDeferred(nameof(SubscribeToEvents));
+
         GD.Print("[CrisisDirector] Initialized.");
     }
+
+    /// <summary>
+    /// Listen for the things that arrive as events rather than as a state a
+    /// daily poll can notice.
+    ///
+    /// A staff member breaking is a moment, not a condition — by the next
+    /// tick the break system has already applied its consequences and moved
+    /// on, so polling would miss it entirely. Same for a rival making a move.
+    /// </summary>
+    private void SubscribeToEvents()
+    {
+        var breaks = GetTree()?.Root?.FindChild(
+            "PsychologicalBreakSystem", true, false) as PsychologicalBreakSystem;
+
+        if (breaks != null) breaks.OnPsychologicalBreak += OnStaffBroke;
+
+        var syndicates = GetTree()?.Root?.FindChild(
+            "SyndicateRivalAI", true, false) as SyndicateRivalAI;
+
+        if (syndicates != null) syndicates.OnRivalAction += OnRivalMoved;
+    }
+
+    /// <summary>
+    /// Someone broke. The break system already models four distinct kinds of
+    /// collapse with distinct consequences; until now none of them reached
+    /// the player as a decision, only as a number moving.
+    /// </summary>
+    private void OnStaffBroke(
+        string staffName, int eventType, int traumaSource,
+        float stressLevel, float traumaLevel, int day, string narrative)
+    {
+        _pendingSubject = staffName;
+        RaiseCrisis(CrisisTrigger.StaffBreakdown);
+    }
+
+    /// <summary>
+    /// A rival did something. <see cref="CrisisTrigger.RivalAttack"/> has been
+    /// in the enum since the file was written and has never had a condition
+    /// attached to it, so it could not fire under any circumstances.
+    /// </summary>
+    private void OnRivalMoved(string syndicate, string action, float severity)
+    {
+        if (severity < RivalSeverityThreshold) return;
+
+        _pendingSubject = syndicate;
+        RaiseCrisis(CrisisTrigger.RivalAttack);
+    }
+
+    /// <summary>Who or what this crisis is about, for the scenario text.</summary>
+    private string _pendingSubject;
 
     public override void _ExitTree()
     {
@@ -83,10 +154,12 @@ public partial class CrisisNarrativeDirector : Node
     // The Ledger is meant to end with a decision often enough to be the
     // game's pacing heartbeat, and it ended with none at all.
     //
-    // Measured against the harness rather than guessed. In a naive run heat
-    // climbs to 73 and sentiment never moves off 50, so heat is the only
-    // trigger that does any work unassisted; the others matter once the
-    // player is making choices that move them.
+    // Measured against the harness rather than guessed. Heat alone gave two
+    // crises in fifty nights and no amount of lowering the threshold gave
+    // more, because each raid takes 25 heat off and heat accrues 1–2 a night
+    // — the system suppressed itself for fifteen nights after every crisis.
+    // The answer was more sources, not a lower number: a 50-night run now
+    // faces five, across raids, rivals and the press.
 
     /// <summary>Heat above this raises a raid crisis.</summary>
     public float HeatThreshold { get; set; } = 35f;
@@ -96,6 +169,20 @@ public partial class CrisisNarrativeDirector : Node
 
     /// <summary>Cash below this raises a solvency crisis.</summary>
     public double DebtThreshold { get; set; } = 0.0;
+
+    /// <summary>Reputation below this raises a collapse-of-name crisis.</summary>
+    public float ReputationThreshold { get; set; } = 30f;
+
+    /// <summary>
+    /// How forceful a rival's move has to be to become a crisis.
+    ///
+    /// <see cref="SyndicateRivalAI"/> logs severity on a 0–10 scale, not 0–1:
+    /// intel gathering is 2, turf expansion 5, poaching 6, extortion 8,
+    /// counter-sabotage 10. Set at 7, so only the two moves that are actually
+    /// aimed at the house interrupt the player — a first pass at 0.5 caught
+    /// every routine intel tick and produced eight crises in fifty nights.
+    /// </summary>
+    public float RivalSeverityThreshold { get; set; } = 7f;
 
     private int _lastCrisisDay = int.MinValue / 2;
 
@@ -109,18 +196,35 @@ public partial class CrisisNarrativeDirector : Node
         // Monitor for crisis triggers
         CrisisTrigger? trigger = null;
 
-        // Order is priority: a strike outranks a bad week at the bank, and
-        // the police outrank both.
+        // Order is priority. The police outrank everything; a strike outranks
+        // a bad week at the bank; the slow structural failures — losing the
+        // house's name, running out of money — come last, because they are
+        // still true tomorrow and the acute ones are not.
         if (heat > HeatThreshold) trigger = CrisisTrigger.PoliceRaid;
         else if (IsStrikeActive()) trigger = CrisisTrigger.WorkerWalkout;
         else if (sentiment < SentimentThreshold) trigger = CrisisTrigger.PublicScandal;
+        else if (reputation < ReputationThreshold) trigger = CrisisTrigger.ReputationCollapse;
         else if (cash < DebtThreshold) trigger = CrisisTrigger.FinancialCollapse;
 
-        if (trigger.HasValue)
-        {
-            _lastCrisisDay = day;
-            TriggerCrisis(trigger.Value);
-        }
+        if (trigger.HasValue) RaiseCrisis(trigger.Value);
+    }
+
+    /// <summary>
+    /// The single gate every trigger passes through — polled or event-driven.
+    /// Enforces the cooldown and the one-crisis-at-a-time rule in one place,
+    /// so a new trigger source cannot accidentally bypass either.
+    /// </summary>
+    /// <returns>True if a crisis was raised.</returns>
+    private bool RaiseCrisis(CrisisTrigger trigger)
+    {
+        if (_crisisActive) return false;
+
+        var day = GameStateManager.Instance?.DayCount ?? 0;
+        if (day - _lastCrisisDay < CooldownDays) return false;
+
+        _lastCrisisDay = day;
+        TriggerCrisis(trigger);
+        return true;
     }
 
     /// <summary>
@@ -148,6 +252,9 @@ public partial class CrisisNarrativeDirector : Node
             CrisisTrigger.PublicScandal => "A public scandal has erupted!",
             CrisisTrigger.WorkerWalkout => "Workers have walked out in protest!",
             CrisisTrigger.FinancialCollapse => "Finances are in critical condition!",
+            CrisisTrigger.StaffBreakdown => $"{_pendingSubject ?? "Someone"} has broken down.",
+            CrisisTrigger.ReputationCollapse => "The house has lost its name.",
+            CrisisTrigger.RivalAttack => $"{_pendingSubject ?? "A rival"} is making a move.",
             _ => "An unknown crisis has occurred."
         };
 
@@ -307,20 +414,20 @@ public partial class CrisisNarrativeDirector : Node
                 new()
                 {
                     Label = "Pay him where he stands",
-                    Description = "$1,200, and the van doors open. Everyone sees you do it.",
-                    Effects = new() { Cash = -1200, Heat = -25, Reputation = -4, PublicSentiment = -5 }
+                    Description = "$700, and the van doors open. Everyone sees you do it.",
+                    Effects = new() { Cash = -700, Heat = -25, Reputation = -4, PublicSentiment = -5 }
                 },
                 new()
                 {
                     Label = "Say nothing and let it run",
                     Description = "Costs nothing tonight. They take what they came for.",
-                    Effects = new() { Cash = -350, Heat = -8, Reputation = -8, PublicSentiment = -2 }
+                    Effects = new() { Cash = -220, Heat = -8, Reputation = -8, PublicSentiment = -2 }
                 },
                 new()
                 {
                     Label = "Call a lawyer at this hour",
-                    Description = "$900 and a long night, but it happens on the record.",
-                    Effects = new() { Cash = -900, Heat = -18, Reputation = 4, PublicSentiment = 8 }
+                    Description = "$550 and a long night, but it happens on the record.",
+                    Effects = new() { Cash = -550, Heat = -18, Reputation = 4, PublicSentiment = 8 }
                 }
             }
         },
@@ -339,8 +446,8 @@ public partial class CrisisNarrativeDirector : Node
                 new()
                 {
                     Label = "Buy the retraction",
-                    Description = "$800 to the right desk. It runs on page nine.",
-                    Effects = new() { Cash = -800, Heat = 3, Reputation = 2, PublicSentiment = 6 }
+                    Description = "$500 to the right desk. It runs on page nine.",
+                    Effects = new() { Cash = -500, Heat = 3, Reputation = 2, PublicSentiment = 6 }
                 },
                 new()
                 {
@@ -352,7 +459,7 @@ public partial class CrisisNarrativeDirector : Node
                 {
                     Label = "Close for three nights",
                     Description = "Lose the trade. Let them find something else to write about.",
-                    Effects = new() { Cash = -1500, Heat = -15, Reputation = -2, PublicSentiment = 14 }
+                    Effects = new() { Cash = -850, Heat = -15, Reputation = -2, PublicSentiment = 14 }
                 }
             }
         },
@@ -372,7 +479,7 @@ public partial class CrisisNarrativeDirector : Node
                 {
                     Label = "Go up and listen",
                     Description = "Costs an evening's takings and some of your standing with them.",
-                    Effects = new() { Cash = -400, Heat = 0, Reputation = 2, PublicSentiment = 8 }
+                    Effects = new() { Cash = -260, Heat = 0, Reputation = 2, PublicSentiment = 8 }
                 },
                 new()
                 {
@@ -383,8 +490,8 @@ public partial class CrisisNarrativeDirector : Node
                 new()
                 {
                     Label = "Send everyone home paid",
-                    Description = "$700 for a night that earns nothing, and no grievance left standing.",
-                    Effects = new() { Cash = -700, Heat = -5, Reputation = 3, PublicSentiment = 12 }
+                    Description = "$450 for a night that earns nothing, and no grievance left standing.",
+                    Effects = new() { Cash = -450, Heat = -5, Reputation = 3, PublicSentiment = 12 }
                 }
             }
         },
@@ -417,6 +524,102 @@ public partial class CrisisNarrativeDirector : Node
                     Label = "Tell the staff the truth",
                     Description = "Raises nothing. Some of them stay anyway.",
                     Effects = new() { Cash = 0, Heat = -3, Reputation = 4, PublicSentiment = 10 }
+                }
+            }
+        },
+
+        CrisisTrigger.StaffBreakdown => new CrisisScenario
+        {
+            Title = "She Is Not Coming Down",
+            Trigger = trigger.ToString(),
+            Narrative =
+                $"{_pendingSubject ?? "One of the women"} got halfway through the " +
+                "evening and stopped. Not a scene — she simply sat down on the " +
+                "stairs and would not be moved, and a client is still waiting " +
+                "in a room with the door open, working out how offended to be.",
+            Choices =
+            {
+                new()
+                {
+                    Label = "Put her in a cab and pay the client off",
+                    Description = "$320. She keeps her place and the client keeps quiet.",
+                    Effects = new() { Cash = -320, Heat = 0, Reputation = -1, PublicSentiment = 6 }
+                },
+                new()
+                {
+                    Label = "Have someone else take the room",
+                    Description = "The evening continues. Everyone watches you decide that.",
+                    Effects = new() { Cash = 150, Heat = 3, Reputation = 1, PublicSentiment = -12 }
+                },
+                new()
+                {
+                    Label = "Shut the floor for the night",
+                    Description = "Lose the takings. Nobody is asked to work through it.",
+                    Effects = new() { Cash = -400, Heat = -4, Reputation = -2, PublicSentiment = 15 }
+                }
+            }
+        },
+
+        CrisisTrigger.ReputationCollapse => new CrisisScenario
+        {
+            Title = "An Empty House",
+            Trigger = trigger.ToString(),
+            Narrative =
+                "Three of the four rooms went unused last night and the lamps " +
+                "burned anyway. It is not that anyone is angry. It is that the " +
+                "house has stopped being somewhere people think of going, and a " +
+                "name takes longer to get back than it took to lose.",
+            Choices =
+            {
+                new()
+                {
+                    Label = "Spend on the room that still gets used",
+                    Description = "$600 into the one thing people still come for.",
+                    Effects = new() { Cash = -600, Heat = 0, Reputation = 10, PublicSentiment = 2 }
+                },
+                new()
+                {
+                    Label = "Cut the rates until they come back",
+                    Description = "Cheap tonight, and cheap is what the house becomes known for.",
+                    Effects = new() { Cash = -200, Heat = 2, Reputation = 5, PublicSentiment = -6 }
+                },
+                new()
+                {
+                    Label = "Wait it out",
+                    Description = "Costs nothing. Nothing improves either.",
+                    Effects = new() { Cash = 0, Heat = -2, Reputation = 1, PublicSentiment = 0 }
+                }
+            }
+        },
+
+        CrisisTrigger.RivalAttack => new CrisisScenario
+        {
+            Title = "A Message From Across Town",
+            Trigger = trigger.ToString(),
+            Narrative =
+                $"{_pendingSubject ?? "A rival house"} sent two men to stand " +
+                "outside from ten until close. They did not come in and they " +
+                "did not do anything. Every client who arrived had to walk past " +
+                "them, and roughly half of them did not.",
+            Choices =
+            {
+                new()
+                {
+                    Label = "Pay the fee they came for",
+                    Description = "$650 and they stop. They will be back at the same time next month.",
+                    Effects = new() { Cash = -650, Heat = 4, Reputation = -2, PublicSentiment = -3 }
+                },
+                new()
+                {
+                    Label = "Put your own men on the door",
+                    Description = "$400 and it escalates. Everyone knows where that goes.",
+                    Effects = new() { Cash = -400, Heat = 14, Reputation = 5, PublicSentiment = -5 }
+                },
+                new()
+                {
+                    Label = "Report it",
+                    Description = "Free, and it puts the house on a list it was not on.",
+                    Effects = new() { Cash = 0, Heat = 18, Reputation = 2, PublicSentiment = 10 }
                 }
             }
         },

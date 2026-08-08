@@ -1034,11 +1034,64 @@ public partial class SmokeTest : Node
             Check($"{trigger} has a written scenario",
                 scenario != null && scenario.Choices.Count >= 2 &&
                 !string.IsNullOrWhiteSpace(scenario.Title));
+
+            Check($"{trigger}'s scenario is not the generic one",
+                scenario?.Title != "A Difficult Night");
         }
+
+        // ── The event-driven sources are actually subscribed ───────────
+        //
+        // A staff member breaking and a rival making a move are moments, not
+        // states — by the next daily tick they are over, so a poll would miss
+        // them. Both are wired through signals, and a signal with no listener
+        // is this codebase's signature failure, so assert the connection
+        // rather than trusting it.
+        var breaks = GetTree()?.Root?.FindChild(
+            "PsychologicalBreakSystem", true, false) as PsychologicalBreakSystem;
+
+        var syndicates = GetTree()?.Root?.FindChild(
+            "SyndicateRivalAI", true, false) as SyndicateRivalAI;
+
+        Check("the crisis director listens for psychological breaks",
+            HasListener(breaks, "OnPsychologicalBreak"));
+
+        Check("the crisis director listens for rival moves",
+            HasListener(syndicates, "OnRivalAction"));
+
+        // ── A rival's routine business is not a crisis ─────────────────
+        crises.DismissCrisis();
+        crises.CooldownDays = 0;
+
+        var beforeRoutine = crises.TotalCrises;
+        syndicates?.EmitSignal(SyndicateRivalAI.SignalName.OnRivalAction,
+            "Iron Circle", "intel_gathering", 2f);
+
+        Check("routine intel-gathering does not interrupt the player",
+            crises.TotalCrises == beforeRoutine && !crises.CrisisActive);
+
+        syndicates?.EmitSignal(SyndicateRivalAI.SignalName.OnRivalAction,
+            "Iron Circle", "extortion", 8f);
+
+        Check("an extortion demand does", crises.CrisisActive);
+        Check("and it names the syndicate",
+            crises.ActiveScenario?.Narrative.Contains("Iron Circle") == true);
+
+        crises.DismissCrisis();
 
         crises.CooldownDays = 6;
         GD.Print($"  {crises}");
     }
+
+    /// <summary>
+    /// Whether anything at all is connected to a signal.
+    ///
+    /// Worth a helper: "well-written system, no callers" is this codebase's
+    /// defining bug, and its signal-shaped variant — an emitter nobody
+    /// listens to — accounted for the unionization panel, the city chip and
+    /// both crisis event sources.
+    /// </summary>
+    private static bool HasListener(Node emitter, string signalName) =>
+        emitter != null && emitter.GetSignalConnectionList(signalName).Count > 0;
 
     // ── Persistence round-trip ─────────────────────────────────────────
 
