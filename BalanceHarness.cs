@@ -44,6 +44,7 @@ public partial class BalanceHarness : Node
         public int RosterSize;
         public float Reputation;
         public float Footfall;
+        public float Sentiment;
     }
 
     private readonly Dictionary<EncounterQuality, int> _qualityTotals = new();
@@ -139,7 +140,8 @@ public partial class BalanceHarness : Node
             Heat = gsm.Heat,
             RosterSize = roster.Count,
             Reputation = gsm.Reputation,
-            Footfall = _boot.Macro?.FootfallMultiplier ?? 1f
+            Footfall = _boot.Macro?.FootfallMultiplier ?? 1f,
+            Sentiment = gsm.PublicSentiment
         });
 
         if (_played >= Nights)
@@ -154,14 +156,14 @@ public partial class BalanceHarness : Node
     private void Report()
     {
         GD.Print("\n─── Per night ───");
-        GD.Print(" N |  served |  revenue |  commis |  upkeep |   salary |      cash |  appt | stress | loyal | heat | roster |  rep | foot");
+        GD.Print(" N |  served |  revenue |  commis |  upkeep |   salary |      cash |  appt | stress | loyal | heat | roster |  rep | foot | sent");
 
         foreach (var s in _samples)
         {
             GD.Print($"{s.Night,2} | {s.Served,3} ({s.TurnedAway,1}) | " +
                      $"{s.Revenue,8:F0} | {s.Commission,7:F0} | {s.Upkeep,7:F0} | {s.Salaries,8:F0} | " +
                      $"{s.CashAfter,9:F0} | {s.AvgAppointment,5:F1} | {s.AvgStress,6:F1} | " +
-                     $"{s.AvgLoyalty,5:F1} | {s.Heat,4:F0} | {s.RosterSize,6} | {s.Reputation,4:F0} | {s.Footfall,4:F2}");
+                     $"{s.AvgLoyalty,5:F1} | {s.Heat,4:F0} | {s.RosterSize,6} | {s.Reputation,4:F0} | {s.Footfall,4:F2} | {s.Sentiment,4:F0}");
         }
 
         var totalRevenue = _samples.Sum(s => s.Revenue);
@@ -210,6 +212,19 @@ public partial class BalanceHarness : Node
                  $"unattended)");
 
         GD.Print($"  crises faced {_crisesAnswered}");
+
+        // The Ledger is meant to ask the player something. It asked nothing
+        // at all until the thresholds were lowered, and the only reason
+        // anyone noticed was that this line printed a zero. Assert it, so a
+        // future tuning change cannot quietly switch the pacing back off.
+        //
+        // Upper bound as well as lower: a crisis every night is nagging, not
+        // pacing. Roughly one per 10–25 nights is what this range encodes.
+        var expectedFloor = Nights >= 40 ? 2 : 1;
+
+        Verdict($"crises actually fire, but not constantly " +
+                $"({_crisesAnswered} in {Nights} nights)",
+            _crisesAnswered >= expectedFloor && _crisesAnswered <= Nights / 5);
 
         Verdict("furniture wear does not collapse the house unattended",
             apptFirst <= 0f || apptLast > apptFirst * 0.6f);

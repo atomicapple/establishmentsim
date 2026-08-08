@@ -38,7 +38,7 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 # Smoke test — 184 checks, the main safety net
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . smoke_test.tscn
 
-# Balance harness — 20 simulated nights + a six-point verdict
+# Balance harness — 20 simulated nights + a seven-point verdict
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . balance.tscn
 
 # The same, over 50 nights — where slow drifts become visible
@@ -314,43 +314,34 @@ characters.
 
 ## What's left, in the order I'd do it
 
-The first two are **design calls, not bugs.** They are the largest open
-questions in the game and neither has a right answer I can derive from the
-code, so the numbers are untouched.
-
-1. **Crises never fire.** The director is live, the screen works, four
-   scenarios are written — and a 50-night naive run faces **zero** of them.
-   The triggers sit at catastrophe level: heat above 85 (it peaks around
-   70), sentiment below 15, an active strike, or the house $500 in debt. The
-   design calls for the Ledger to end with one to three decisions as the
-   pacing heartbeat; at these thresholds it beats zero times. How often
-   should the game interrupt the player?
+1. **Crisis frequency is capped by the heat economy, not the thresholds.**
+   Lowering `HeatThreshold` from 85 to 35 moved a naive run from 0 crises to
+   1 per 20 nights and 2 per 50 — and 30 gives the same 2, because each raid
+   knocks 25 heat off and heat only accrues 1–2 a night. **The threshold is
+   no longer the limiting factor.** Getting closer to a per-night decision
+   needs either more trigger sources or a Ledger decision that is not a
+   crisis at all. Sentiment never moves off 50 unattended and cash never goes
+   negative, so heat is currently doing all the work alone.
 
 2. **Reputation has no recovery term.** Arrivals scale with it, so a shock
    that lowers reputation lowers the number of chances to earn it back. Over
    50 nights it falls 83 → 25 and never returns. Death spiral, or the
-   ratchet working as intended?
+   ratchet working as intended? Still a design call.
 
 3. **Balance constants predate the working harness.** Anything justified by
    a harness run before `WorldRandom` was measured against ±55% noise.
-   Re-derive rather than trust — including numbers whose commit messages
-   sound confident.
+   Re-derive rather than trust.
 
 4. **Asset decimation.** Thirteen files drew GitHub's "larger than the
-   recommended 50 MB" warning, and four beds are excluded from the repo
-   entirely for breaking the 100 MiB hard limit. A 70 MB rug and a 91 MB rig
-   archive are Meshy defaults, not game assets. This has to happen before
-   release regardless of where the files are stored.
+   recommended 50 MB" warning, and four beds are excluded from the repo for
+   breaking the 100 MiB hard limit. Has to happen before release regardless.
 
-5. **`RollReturningClient` iterates a `Dictionary<string, Patron>`** keyed by
-   Guid. Iteration order is stable within a process but is not part of the
-   seed, so it is the one part of a "deterministic" run that could still
-   drift if the dictionary were ever rebuilt in a different order. Not
-   currently observed; an ordered list would settle it.
+5. **`RollReturningClient` iterates a Guid-keyed dictionary.** Iteration
+   order is stable within a process but is not part of the seed — the one
+   part of a "deterministic" run that could still drift. Not observed.
 
 6. **The three `HudTool` chips** (Cleaning, Alert, Info) emit
-   `OnToolRequested` and nothing consumes it. The Alert chip is written to,
-   but pressing any of the three does nothing.
+   `OnToolRequested` and nothing consumes it.
 
 ---
 

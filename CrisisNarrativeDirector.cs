@@ -74,7 +74,28 @@ public partial class CrisisNarrativeDirector : Node
     /// satisfies its trigger every single night, and the player would face
     /// the same decision at every Ledger until they settled it.
     /// </summary>
-    public int CooldownDays { get; set; } = 6;
+    public int CooldownDays { get; set; } = 5;
+
+    // ── Trigger thresholds ─────────────────────────────────────────────
+    //
+    // These were set at catastrophe level — heat above 85, sentiment below
+    // 15, the house $500 in debt — and a 50-night run reached none of them.
+    // The Ledger is meant to end with a decision often enough to be the
+    // game's pacing heartbeat, and it ended with none at all.
+    //
+    // Measured against the harness rather than guessed. In a naive run heat
+    // climbs to 73 and sentiment never moves off 50, so heat is the only
+    // trigger that does any work unassisted; the others matter once the
+    // player is making choices that move them.
+
+    /// <summary>Heat above this raises a raid crisis.</summary>
+    public float HeatThreshold { get; set; } = 35f;
+
+    /// <summary>Public feeling below this raises a scandal.</summary>
+    public float SentimentThreshold { get; set; } = 35f;
+
+    /// <summary>Cash below this raises a solvency crisis.</summary>
+    public double DebtThreshold { get; set; } = 0.0;
 
     private int _lastCrisisDay = int.MinValue / 2;
 
@@ -88,10 +109,12 @@ public partial class CrisisNarrativeDirector : Node
         // Monitor for crisis triggers
         CrisisTrigger? trigger = null;
 
-        if (heat > 85f) trigger = CrisisTrigger.PoliceRaid;
-        else if (sentiment < 15f) trigger = CrisisTrigger.PublicScandal;
+        // Order is priority: a strike outranks a bad week at the bank, and
+        // the police outrank both.
+        if (heat > HeatThreshold) trigger = CrisisTrigger.PoliceRaid;
         else if (IsStrikeActive()) trigger = CrisisTrigger.WorkerWalkout;
-        else if (cash < -500) trigger = CrisisTrigger.FinancialCollapse;
+        else if (sentiment < SentimentThreshold) trigger = CrisisTrigger.PublicScandal;
+        else if (cash < DebtThreshold) trigger = CrisisTrigger.FinancialCollapse;
 
         if (trigger.HasValue)
         {
