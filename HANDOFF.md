@@ -337,28 +337,61 @@ needs revisiting.
 **When a stat here misbehaves over a long run, check whether anything moves
 it the other way before touching its magnitudes.**
 
-### The two big levers, swept
+### Every major constant, swept
 
-The instruction below used to come with a warning that every constant had
-been tuned against noise. Two of the three largest were re-derived once the
-harness became deterministic, and both hold up:
+The standing advice used to be that no constant could be trusted, because
+all of them were tuned against a harness with 55% run-to-run variance. All
+five of the biggest have now been re-derived against the deterministic one.
+**None of them needed changing** — but each is now a measured choice rather
+than a remembered one, and each is right for a *different* reason.
 
 ```
-commission   0.30  cash 7607  costs 48%   8/9   costs too low
-             0.36       6619        54%   8/9   costs too low
-             0.42       5630        60%   9/9   <- current
-             0.48       4642        66%   9/9
-             0.54       3654        72%   9/9
+commission        0.30  cash 7607  costs 48%  8/9
+                  0.36       6619        54%  8/9
+                  0.42       5630        60%  9/9   <- current
+                  0.48       4642        66%  9/9
+                  0.54       3654        72%  9/9
 
-room price    $62  cash 4371  8/9    $78  cash 5630  9/9  <- current
-              $70       5351  8/9    $86       6603  9/9
-                                     $94       7563  9/9
+room price         $62  4371  8/9     $78  5630  9/9  <- current
+                   $70  5351  8/9     $86  6603  9/9
+                                      $94  7563  9/9
+
+arrivals/night       6  cash  -986  turned away 38  8/9
+                     7         137              28  8/9
+                     8        1657              21  9/9  <- current
+                     9        1653              31  9/9
+                    10        1805              30  9/9
+
+maintenance repair   0  appointment 70.3 -> 41.7  7/9
+                     1              70.7 -> 54.3  8/9
+                     2              71.1 -> 68.0  9/9   <- current
+                     3              71.4 -> 71.4  9/9
+                     4              71.4 -> 71.4  9/9
+
+stress recovery      9  peak 59  mean 19.9  8 breaks  7/9
+                    12       46       20.9  5 breaks  7/9
+                    15       29        9.0  1 break   9/9  <- current
+                    18        7        0.8  0 breaks  8/9
+                    21        1        0.0  0 breaks  8/9
 ```
 
-Commission at 0.42 sits in the lower third of the passing band, not on its
-edge. Room price has no economic boundary at all in this range — the 8/9 at
-$62 and $70 was a *crisis-count* verdict failing, not an economic one, which
-is what prompted rewriting that verdict (see below).
+Read the shapes, not just the ticks:
+
+- **Commission** sits in the lower third of the passing band, not on its edge.
+- **Room price** has no economic boundary in this range at all.
+- **Arrivals at 8 is a knee.** Below it the house is insolvent; above it cash
+  plateaus and turn-aways climb, because three staff become the binding
+  constraint instead of demand. More customers stop helping.
+- **Maintenance at 2 is the last value where the mechanic is alive.** At 3
+  and above, repair fully cancels wear (71.4 → 71.4) and the entire furniture
+  degradation system becomes decorative.
+- **Stress recovery at 15 is the only 9/9**, sitting between "everyone breaks"
+  and "stress pins at zero and the system is inert" — which is exactly what
+  its original commit message claimed, now with evidence.
+
+Two of these — maintenance and stress recovery — fail *upward* as well as
+downward. A generous-looking value silently switches the mechanic off. When
+tuning here, check the top of the range as well as the bottom.
 
 **Change numbers against the harness, not intuition.** The first balance pass
 produced a −$10,308 death spiral traceable to a single ratio (stress gained
@@ -398,29 +431,39 @@ characters.
 
 ---
 
-## What's left, in the order I'd do it
+## What's left
 
-Everything mechanical is done. What remains is art, and one honest caveat.
+### 1. Asset decimation
 
-1. **Asset decimation.** Thirteen files drew GitHub's "larger than the
-   recommended 50 MB" warning, and four beds are excluded from the repo for
-   breaking the 100 MiB hard limit. A 70 MB rug is a Meshy default, not a
-   game asset. Has to happen before release regardless of storage.
+Thirteen files drew GitHub's "larger than the recommended 50 MB" warning and
+four beds are excluded from the repo for breaking the 100 MiB hard limit. A
+70 MB rug is a Meshy default, not a game asset. This has to happen before
+release regardless of where the files live. It needs a tool that is not in
+the repo (`gltf-transform` or similar), so it needs a decision about
+installing one.
 
-2. **The remaining balance constants have not been swept.** Commission and
-   base room price were re-derived above. `BaseArrivalsPerNight`,
-   `NightlyMaintenanceRepair`, `BaseDailyStressRecovery`, the encounter
-   scoring bands and the licence ceilings were all set before the harness
-   was deterministic. They pass, but "passes" and "was chosen deliberately"
-   are different claims.
+### 2. Public sentiment is a closed loop
 
-3. **Sentiment barely moves on its own.** It sits at 50 through a whole
-   naive run and only shifts when a crisis choice or a strike resolution
-   moves it. The scandal trigger therefore only fires as a consequence of
-   the player's own decisions, never from drift. That may be correct; it has
-   never been examined.
+Traced properly. `PublicSentiment` is moved by exactly two things:
 
----
+- crisis choices, via `CrisisEffects.PublicSentiment`
+- `UnionizationManager.HireStrikebreakers`, which takes 10
+
+**Nothing in the night loop touches it.** Not a Disastrous encounter, not a
+staff breakdown, not a raid, not fifty nights of turning people away. It sits
+at 50 for an entire naive campaign.
+
+So the stat is real, displayed, and gates the `PublicScandal` crisis — but it
+only ever moves as a consequence of decisions the player already made
+elsewhere. It has no input from ordinary play. That is a coherent design (a
+memory of hard choices) and it is also indistinguishable from an unfinished
+one, which is why it is written down here rather than quietly changed.
+
+If it should respond to play, the natural wiring is one line in
+`NightDirector.ApplySocialAndShiftEffects` — Disastrous outcomes and staff
+breaks push it down, quiet well-run nights let it drift back toward 50, the
+same asymmetric shape reputation now uses. Expect it to raise the crisis rate,
+since the scandal trigger would finally have a source.
 
 ## Repo
 
