@@ -37,7 +37,20 @@ public partial class UnionizationManager : Node, ISaveableSystem
     }
 
     public bool StrikeActive => _strikeActive;
-    public int StrikingStaffCount { get; private set; }
+    /// <summary>
+    /// How many staff are out.
+    ///
+    /// Fixed at the moment the strike is called, but clamped to the roster on
+    /// read: staff can quit or break mid-strike, and the frozen number then
+    /// claims more people walked out than the house employs. Reporting "4 of
+    /// 3 staff are out" reads as a bug to the player, which it was.
+    /// </summary>
+    public int StrikingStaffCount =>
+        _strikeActive
+            ? Math.Clamp(_strikingStaffCount, 0, Math.Max(0, StaffRoster.Instance?.Count ?? 0))
+            : 0;
+
+    private int _strikingStaffCount;
     public int StrikeDurationDays => _strikeActive ? (GameStateManager.Instance?.DayCount ?? 0) - _strikeDayStart : 0;
     public float StrikeSeverityThreshold { get; set; } = 80f;
     public float ExploitationPolicyRiskBonus { get; set; } = 2.5f;
@@ -51,7 +64,7 @@ public partial class UnionizationManager : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(UnionizationManager));
 
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.OnDailyTick += OnDailyTick;
@@ -127,7 +140,7 @@ public partial class UnionizationManager : Node, ISaveableSystem
         _strikeDayStart = GameStateManager.Instance?.DayCount ?? 0;
 
         var allStaff = FindAllStaff();
-        StrikingStaffCount = Math.Max(1, allStaff.Count / 2 + (int)(_rng.Randi() % (uint)Math.Max(1, allStaff.Count / 2)));
+        _strikingStaffCount = Math.Max(1, allStaff.Count / 2 + (int)(_rng.Randi() % (uint)Math.Max(1, allStaff.Count / 2)));
 
         EmitSignal(SignalName.OnStrikeTriggered, _unionRisk, StrikingStaffCount);
         GD.Print($"[Unionization] STRIKE! {StrikingStaffCount} staff walking out. Risk={_unionRisk:F1}");
@@ -299,7 +312,7 @@ public partial class UnionizationManager : Node, ISaveableSystem
         _unionRisk = Mathf.Clamp((float?)state["unionRisk"] ?? 0f, 0f, 100f);
         _strikeActive = (bool?)state["strikeActive"] ?? false;
         _strikeDayStart = (int?)state["strikeDayStart"] ?? 0;
-        StrikingStaffCount = Math.Max(0, (int?)state["strikingStaffCount"] ?? 0);
+        _strikingStaffCount = Math.Max(0, (int?)state["strikingStaffCount"] ?? 0);
 
         GD.Print($"[Unionization] Restored: risk {_unionRisk:F0}%, " +
                  $"strike {(_strikeActive ? "ACTIVE" : "none")}.");

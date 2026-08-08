@@ -147,7 +147,7 @@ public partial class RegularsRegistry : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(RegularsRegistry));
         GD.Print("[Regulars] Ready.");
     }
 

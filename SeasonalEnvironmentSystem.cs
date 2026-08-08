@@ -37,7 +37,7 @@ public partial class SeasonalEnvironmentSystem : Node
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(SeasonalEnvironmentSystem));
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.OnDailyTick += OnDailyTick;
         ChangeSeason(Season.Spring);

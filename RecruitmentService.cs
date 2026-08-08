@@ -142,7 +142,7 @@ public partial class RecruitmentService : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(RecruitmentService));
 
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.OnDailyTick += OnDailyTick;

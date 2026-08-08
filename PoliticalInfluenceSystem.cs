@@ -66,7 +66,7 @@ public partial class PoliticalInfluenceSystem : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(PoliticalInfluenceSystem));
 
         _relationships[0] = new PoliticalRelationship { Figure = MunicipalFigure.PrecinctCaptain };
         _relationships[1] = new PoliticalRelationship { Figure = MunicipalFigure.DistrictAttorney };

@@ -140,7 +140,7 @@ public partial class PsychologicalBreakSystem : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(PsychologicalBreakSystem));
 
         if (GameStateManager.Instance != null)
         {

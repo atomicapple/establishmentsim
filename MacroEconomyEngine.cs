@@ -41,7 +41,7 @@ public partial class MacroEconomyEngine : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(MacroEconomyEngine));
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.OnDailyTick += OnDailyTick;
         TransitionTo(MacroPhase.Stagnation);

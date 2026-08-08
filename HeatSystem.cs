@@ -120,7 +120,7 @@ public partial class HeatSystem : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(HeatSystem));
 
         // Connect to the global daily tick
         if (GameStateManager.Instance != null)

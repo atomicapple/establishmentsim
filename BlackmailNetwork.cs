@@ -43,7 +43,7 @@ public partial class BlackmailNetwork : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(BlackmailNetwork));
         GD.Print("[BlackmailNetwork] Initialized.");
     }
 

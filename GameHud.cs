@@ -20,6 +20,24 @@ public enum HudTool
 }
 
 /// <summary>
+/// The side panels the top bar can open.
+///
+/// Every one of these was reachable only by pressing an undocumented key —
+/// a player who never guessed 'L' would finish a campaign without knowing
+/// licences existed. The order here is the order they appear in the bar, and
+/// it runs roughly from the everyday to the occasional.
+/// </summary>
+public enum HudPanel
+{
+    Staff,
+    Patrons,
+    Policy,
+    Influence,
+    Licences,
+    Union
+}
+
+/// <summary>
 /// Procedural StyleBox factory for the HUD chrome.
 ///
 /// Every colour here is derived from <see cref="IsoTheme"/> rather than
@@ -225,6 +243,10 @@ public partial class GameHud : CanvasLayer
     /// <summary>A staff member was picked in the Staff tab.</summary>
     [Signal]
     public delegate void OnStaffSelectedEventHandler(string staffId);
+
+    /// <summary>A side panel was asked for. Carries the <see cref="HudPanel"/> value.</summary>
+    [Signal]
+    public delegate void OnPanelRequestedEventHandler(int panel);
 
     // ── Layout Constants ───────────────────────────────────────────────
 
@@ -502,6 +524,10 @@ public partial class GameHud : CanvasLayer
         _heatLabel = AddMetric(row, "HEAT", "0", IsoTheme.TextPrimary, out _);
         _nightLabel = AddMetric(row, "NIGHT", "1", IsoTheme.TextPrimary, out _);
 
+        row.AddChild(MakeSeparator());
+
+        BuildPanelRail(row);
+
         row.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
 
         // ── Client Satisfaction ────────────────────────────────────────
@@ -530,6 +556,69 @@ public partial class GameHud : CanvasLayer
         _satisfactionValue = HudStyle.MakeLabel("5.0", 17, IsoTheme.TextPrimary);
         meterText.AddChild(_satisfactionValue);
     }
+
+    /// <summary>
+    /// One button per side panel, so none of them depends on the player
+    /// guessing a key. The shortcut stays, and is named in the tooltip — the
+    /// keys are worth keeping for anyone who learns them, but they were never
+    /// an acceptable only route.
+    /// </summary>
+    private void BuildPanelRail(HBoxContainer row)
+    {
+        var rail = new HBoxContainer { Name = "PanelRail" };
+        rail.AddThemeConstantOverride("separation", 4);
+        row.AddChild(rail);
+
+        foreach (HudPanel panel in Enum.GetValues<HudPanel>())
+        {
+            var button = new Button
+            {
+                Text = PanelLabel(panel),
+                TooltipText = $"{PanelTooltip(panel)}  ({PanelKey(panel)})"
+            };
+
+            HudStyle.StyleButton(button, IsoTheme.GoldDim, 10, 11, 10);
+            button.Pressed += () => EmitSignal(SignalName.OnPanelRequested, (int)panel);
+            rail.AddChild(button);
+        }
+    }
+
+    private static string PanelLabel(HudPanel panel) => panel switch
+    {
+        HudPanel.Staff => "Staff",
+        HudPanel.Patrons => "Book",
+        HudPanel.Policy => "Code",
+        HudPanel.Influence => "Favours",
+        HudPanel.Licences => "Licences",
+        HudPanel.Union => "Labour",
+        _ => panel.ToString()
+    };
+
+    private static string PanelTooltip(HudPanel panel) => panel switch
+    {
+        HudPanel.Staff => "The roster, and who is available to hire",
+        HudPanel.Patrons => "Clients who keep coming back",
+        HudPanel.Policy => "The Panderer's Code — how the house is run",
+        HudPanel.Influence => "Who is being paid, and what it buys",
+        HudPanel.Licences => "Permits that raise the house's ceilings",
+        HudPanel.Union => "Labour unrest, and what settles it",
+        _ => panel.ToString()
+    };
+
+    /// <summary>
+    /// The keyboard shortcut. Defined once here so the tooltip that teaches
+    /// it and the handler that answers it cannot drift apart.
+    /// </summary>
+    public static Key PanelKey(HudPanel panel) => panel switch
+    {
+        HudPanel.Staff => Key.S,
+        HudPanel.Patrons => Key.B,
+        HudPanel.Policy => Key.P,
+        HudPanel.Influence => Key.I,
+        HudPanel.Licences => Key.L,
+        HudPanel.Union => Key.U,
+        _ => Key.None
+    };
 
     private Label AddMetric(
         HBoxContainer row, string caption, string value, Color valueColour, out VBoxContainer holder)

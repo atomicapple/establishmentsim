@@ -52,7 +52,7 @@ public partial class SyndicateRivalAI : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(SyndicateRivalAI));
 
         _syndicates.AddRange(new[]
         {

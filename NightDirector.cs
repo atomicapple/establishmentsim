@@ -137,6 +137,13 @@ public partial class NightDirector : Node, ISaveableSystem
     /// <summary>Seconds one encounter occupies a room at 1× time scale.</summary>
     [Export] public float EncounterDurationSeconds { get; set; } = 22f;
 
+    /// <summary>
+    /// Advance the night by this much per frame instead of by real elapsed
+    /// time. Zero — the default — uses the real delta. Set only by headless
+    /// harnesses, which need a run to be repeatable.
+    /// </summary>
+    [Export] public float FixedStepSeconds { get; set; }
+
     /// <summary>Base clients per night before reputation and footfall scaling.</summary>
     [Export] public float BaseArrivalsPerNight { get; set; } = 8f;
 
@@ -199,7 +206,7 @@ public partial class NightDirector : Node, ISaveableSystem
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(NightDirector));
         GD.Print("[NightDirector] Ready.");
     }
 
@@ -210,7 +217,15 @@ public partial class NightDirector : Node, ISaveableSystem
         // Time scale and modal pausing stay MasterGameLoop's job — it already
         // tracks 0–3× and modal depth correctly, so the night simply consumes
         // whatever effective delta it hands out.
-        float scaled = GetEffectiveDelta((float)delta);
+        // A fixed step makes a night advance in a deterministic number of
+        // beats regardless of frame rate. Without it the balance harness
+        // measured the machine it ran on as much as the economy: identical
+        // 20-night runs landed anywhere from +$1,199 to +$5,118, because a
+        // slower frame consumed more of the night per tick and served fewer
+        // clients. Zero keeps real time, which is what play wants.
+        float raw = FixedStepSeconds > 0f ? FixedStepSeconds : (float)delta;
+
+        float scaled = GetEffectiveDelta(raw);
         if (scaled <= 0f) return;
 
         if (_phase == NightPhase.Service)

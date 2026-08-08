@@ -41,6 +41,7 @@ public partial class BalanceHarness : Node
         public float AvgLoyalty;
         public float AvgStress;
         public float Heat;
+        public int RosterSize;
     }
 
     private readonly Dictionary<EncounterQuality, int> _qualityTotals = new();
@@ -62,6 +63,11 @@ public partial class BalanceHarness : Node
     {
         _boot.Night.ServiceDurationSeconds = 2.0f;
         _boot.Night.EncounterDurationSeconds = 0.10f;
+
+        // Off the wall clock. A night is now a fixed number of beats rather
+        // than a fixed number of seconds, so the same seed plays the same run
+        // on any machine and under any load.
+        _boot.Night.FixedStepSeconds = 1f / 60f;
 
         _boot.Night.OnEncounterResolved += OnEncounterResolved;
 
@@ -114,7 +120,8 @@ public partial class BalanceHarness : Node
             AvgAppointment = _boot.Venue.GetAverageAppointment(),
             AvgLoyalty = roster.GetAverageLoyalty(),
             AvgStress = roster.GetAverageStress(),
-            Heat = gsm.Heat
+            Heat = gsm.Heat,
+            RosterSize = roster.Count
         });
 
         if (_played >= Nights)
@@ -129,14 +136,14 @@ public partial class BalanceHarness : Node
     private void Report()
     {
         GD.Print("\n─── Per night ───");
-        GD.Print(" N |  served |  revenue |  commis |  upkeep |   salary |      cash |  appt | stress | loyal | heat");
+        GD.Print(" N |  served |  revenue |  commis |  upkeep |   salary |      cash |  appt | stress | loyal | heat | roster");
 
         foreach (var s in _samples)
         {
             GD.Print($"{s.Night,2} | {s.Served,3} ({s.TurnedAway,1}) | " +
                      $"{s.Revenue,8:F0} | {s.Commission,7:F0} | {s.Upkeep,7:F0} | {s.Salaries,8:F0} | " +
                      $"{s.CashAfter,9:F0} | {s.AvgAppointment,5:F1} | {s.AvgStress,6:F1} | " +
-                     $"{s.AvgLoyalty,5:F1} | {s.Heat,4:F0}");
+                     $"{s.AvgLoyalty,5:F1} | {s.Heat,4:F0} | {s.RosterSize,6}");
         }
 
         var totalRevenue = _samples.Sum(s => s.Revenue);
@@ -169,8 +176,23 @@ public partial class BalanceHarness : Node
             _qualityTotals.GetValueOrDefault(EncounterQuality.Adequate) ==
                 _qualityTotals.Values.DefaultIfEmpty(0).Max());
         Verdict("Disastrous stays under 10%", Share(EncounterQuality.Disastrous) < 0.10);
+        // Against gross, not against the opening balance: a multiple of
+        // starting cash silently tightens as the run gets longer, so the same
+        // healthy economy failed at 50 nights and passed at 20.
         Verdict("the house is solvent but not printing money",
-            endCash > startCash && endCash < startCash * 12);
+            endCash > startCash && endCash - startCash < totalRevenue * 0.5);
+
+        // Furniture wears out and only the player replaces it, so a long run
+        // is the only place the drift shows. Over 20 nights it is invisible.
+        var apptFirst = _samples.Count > 0 ? _samples[0].AvgAppointment : 0f;
+        var apptLast = _samples.Count > 0 ? _samples[^1].AvgAppointment : 0f;
+
+        GD.Print($"\n  appointment {apptFirst:F1} → {apptLast:F1} " +
+                 $"({apptLast - apptFirst:+0.0;-0.0;0} over {_samples.Count} nights, " +
+                 $"unattended)");
+
+        Verdict("furniture wear does not collapse the house unattended",
+            apptFirst <= 0f || apptLast > apptFirst * 0.6f);
 
         GetTree().Quit();
     }

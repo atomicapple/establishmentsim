@@ -55,8 +55,11 @@ public partial class GameBootstrap : Node
 
     public override void _Ready()
     {
-        if (WorldSeed == 0) _rng.Randomize();
-        else _rng.Seed = WorldSeed;
+        // Before BuildSystems, because each system seeds itself in its own
+        // _Ready and AddChild runs that immediately. Setting the seed after
+        // construction would leave every system already randomized.
+        WorldRandom.Initialize(WorldSeed);
+        WorldRandom.Seed(_rng, nameof(GameBootstrap));
 
         BuildSystems();
 

@@ -162,8 +162,12 @@ Seven, all sharing the left column through `GameScene.ShowOnly()`:
 | `L` | `LicencesPanel` — ceilings |
 | `U` | `UnionPanel` — labour disputes |
 
-Only room-click has a real affordance; the rest are keys. **Giving these
-discoverable buttons is worthwhile UI work.**
+All six of the keyed panels also have a labelled button in the top bar
+(`GameHud.BuildPanelRail`), and the tooltip names the shortcut. The keys were
+the *only* route until then, which meant a player who never guessed `L` could
+finish a campaign without learning licences existed. `GameHud.PanelKey` is
+the single definition of each shortcut — the tooltip that teaches it and the
+handler in `GameScene` both read it, so they cannot disagree.
 
 `UnionPanel` is the exception that also opens itself: `OnStrikeTriggered`
 raises the alert chip and brings the panel up, because a strike is the one
@@ -219,14 +223,33 @@ Also wanted: **Bar** and **Bath** models — both are *required* categories
 
 ## Balance
 
-Current 20-night baseline, all five verdicts passing:
+Two harnesses: `balance.tscn` (20 nights, the gate) and `balance_long.tscn`
+(50 nights, the diagnostic). Both report six verdicts and all six pass.
 
 ```
-revenue        ~$800/night
-direct costs    60% of revenue
-cash            1000 → ~6000 over 20 nights
-outcomes        ~60% Adequate, ~30% Good, <10% Poor, ~0% Disastrous
+revenue        ~$800/night early, decaying toward ~$150 by night 50
+direct costs    70% of revenue
+cash            1000 → ~6300 at 20 nights, ~4700 at 50
+outcomes        ~48% Adequate, ~26% Good+Exceptional, ~24% Poor, ~2% Disastrous
+appointment    71.1 → 68.3 over 50 unattended nights
 ```
+
+**The harness is deterministic — as of the run that made it so.** It always
+had a `Seed` export, and that export seeded exactly one generator: the
+bootstrap's own. Every other system called `_rng.Randomize()` in its own
+`_Ready`, `GenerateRandomClient` built a freshly randomized generator per
+client, and the night loop advanced on the real frame delta. Three identical
+20-night runs finished on +3537, +5497 and +5281 — a 55% spread. **Every
+balance decision recorded in this repo's history was measured against that
+noise.** Re-derive rather than trust an old number.
+
+The fix is `WorldRandom.cs` (one seed, named independent streams) plus
+`NightDirector.FixedStepSeconds` (the harness advances the night in a fixed
+number of beats instead of a fixed number of seconds). Three runs now agree
+to the dollar. If that ever stops being true, suspect a new unseeded
+generator or a new `string.GetHashCode()` — .NET randomizes string hashing
+per process, and that bug got reintroduced *inside* `WorldRandom` on the
+first attempt.
 
 **Change numbers against the harness, not intuition.** The first balance pass
 produced a −$10,308 death spiral traceable to a single ratio (stress gained
@@ -234,7 +257,12 @@ per night vs. recovered), and two of my "obvious" corrections overshot in
 opposite directions.
 
 The harness plays **naively** — auto-assigns, never hires, never buys, never
-bribes. It measures the floor, not skilled play.
+bribes. It measures the floor, not skilled play. What the 50-night run shows
+is that the floor **stagnates rather than dies**: heat climbs to ~60 and
+stays there because nobody bribes, footfall follows it down, and revenue
+falls from ~$850 to ~$150 a night while the house stays solvent. Furniture
+wear is *not* the long-run pressure — 2.8 points of Appointment over 50
+nights is nothing. Heat is.
 
 ---
 
@@ -256,17 +284,27 @@ characters.
    stdout — it hangs permanently. Needs the fallback path to be the primary
    one. It is currently **not instantiated**, so it is latent, not live.
 
-2. **`GenerateRandomClient` has 8 names.** The patrons book is premised on
-   knowing people; the same name already appears as two distinct patrons.
+2. **Heat has no answer in naive play.** The 50-night run shows heat settling
+   at ~60 and staying, which halves footfall for the rest of the campaign.
+   Bribes are the intended response and the influence panel exists, so this
+   may be working as designed — but nothing in the interface *tells* the
+   player that the falling client count and the heat number are the same
+   fact. A visible causal link is worth more here than a number change.
 
-3. **Discoverable buttons for the side panels.** Six of seven are key-only.
+3. **`RollReturningClient` iterates a `Dictionary<string, Patron>`** keyed by
+   Guid. Iteration order is stable within a process but is not part of the
+   seed, so patron selection is the one part of a "deterministic" run that
+   could still drift if the dictionary is ever rebuilt in a different order.
+   Not currently observed; worth an ordered list if it ever is.
 
-4. **`StrikingStaffCount` is frozen at trigger time** and never re-derived, so
-   staff who leave mid-strike still count as walked out. The panel clamps the
-   display; the number itself is still wrong.
+4. **Save/load has never been round-tripped against determinism.** A restored
+   world re-seeds from `WorldSeed`, but the streams have already advanced —
+   so a save and a reload will not replay identically. Only matters if
+   reproducible replays are ever wanted.
 
-5. **Furniture wear vs. maintenance** is tuned so Appointment drifts down
-   slowly. Worth re-checking over a 50-night run rather than 20.
+5. **The three unused `HudTool` chips** (Cleaning, Alert, Info) are wired to
+   `OnToolRequested` and nothing consumes it. Eighth-and-ninth instance of
+   the repo's defining pattern, but harmless — they are decoration.
 
 ---
 

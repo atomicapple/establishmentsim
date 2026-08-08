@@ -81,7 +81,7 @@ public partial class ClientQueueManager : Node
 
     public override void _Ready()
     {
-        _rng.Randomize();
+        WorldRandom.Seed(_rng, nameof(ClientQueueManager));
         if (GameStateManager.Instance != null)
             GameStateManager.Instance.OnDailyTick += OnDailyTick;
         GD.Print("[ClientQueue] Initialized.");

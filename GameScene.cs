@@ -267,6 +267,7 @@ public partial class GameScene : Node
 
         // The HUD's roster controls open the staff panel.
         _hud.OnStaffSelected += _ => ToggleStaffPanel(true);
+        _hud.OnPanelRequested += panel => TogglePanel((HudPanel)panel);
     }
 
     /// <summary>
@@ -301,6 +302,28 @@ public partial class GameScene : Node
     private void ToggleLicencesPanel(bool show) => ShowOnly(show ? _licences : null);
 
     private void ToggleUnionPanel(bool show) => ShowOnly(show ? _union : null);
+
+    /// <summary>
+    /// The single route to a side panel. The top-bar buttons and the keyboard
+    /// shortcuts both come through here, so the two can never disagree about
+    /// what opens or how it toggles.
+    /// </summary>
+    private void TogglePanel(HudPanel panel)
+    {
+        var target = PanelFor(panel);
+        ShowOnly(target.Visible ? null : target);
+    }
+
+    private Control PanelFor(HudPanel panel) => panel switch
+    {
+        HudPanel.Staff => _staff,
+        HudPanel.Patrons => _patrons,
+        HudPanel.Policy => _policy,
+        HudPanel.Influence => _influence,
+        HudPanel.Licences => _licences,
+        HudPanel.Union => _union,
+        _ => null
+    };
 
     /// <summary>
     /// A strike is the one thing in the game that acts on the player without
@@ -365,36 +388,21 @@ public partial class GameScene : Node
     {
         if (@event is not InputEventKey { Pressed: true, Echo: false } key) return;
 
-        switch (key.Keycode)
+        if (key.Keycode == Key.Escape)
         {
-            // No HUD affordance opens these yet, so they are on keys.
-            case Key.S:
-                ToggleStaffPanel(!_staff.Visible);
-                break;
+            ShowOnly(null);
+            return;
+        }
 
-            case Key.I:
-                ToggleInfluencePanel(!_influence.Visible);
-                break;
+        // Shortcuts for the panels the top bar also opens. The rail is the
+        // discoverable route; these stay for anyone who has learned them, and
+        // the tooltips name them so they can be learned at all.
+        foreach (HudPanel panel in Enum.GetValues<HudPanel>())
+        {
+            if (GameHud.PanelKey(panel) != key.Keycode) continue;
 
-            case Key.P:
-                TogglePolicyPanel(!_policy.Visible);
-                break;
-
-            case Key.B:
-                TogglePatronsPanel(!_patrons.Visible);
-                break;
-
-            case Key.L:
-                ToggleLicencesPanel(!_licences.Visible);
-                break;
-
-            case Key.U:
-                ToggleUnionPanel(!_union.Visible);
-                break;
-
-            case Key.Escape:
-                ShowOnly(null);
-                break;
+            TogglePanel(panel);
+            return;
         }
     }
 

@@ -697,14 +697,93 @@ public partial class ClientNegotiationHandler : Node
 
     // ── Quick Client Factory ───────────────────────────────────────────
 
+    // ── Names ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The stream every generated client is drawn from. Created lazily so it
+    /// picks up the world seed, which is fixed after the static initializer
+    /// would otherwise have run.
+    /// </summary>
+    private static RandomNumberGenerator ClientRng
+    {
+        get
+        {
+            if (_clientRng != null && _clientGeneration == WorldRandom.Generation)
+                return _clientRng;
+
+            _clientGeneration = WorldRandom.Generation;
+            return _clientRng = WorldRandom.Stream(nameof(GenerateRandomClient));
+        }
+    }
+
+    private static RandomNumberGenerator _clientRng;
+    private static int _clientGeneration = -1;
+
+    /// <summary>
+    /// Honorifics, weighted by how they read. Most clients arrive with a
+    /// title and a surname; the plainer forms are commonest because the house
+    /// should feel like it serves a city, not a costume party.
+    /// </summary>
+    private static readonly string[] Honorifics =
+    {
+        "Mr.", "Mr.", "Mr.", "Mrs.", "Ms.", "Ms.", "Madame", "Madame",
+        "Dr.", "Dr.", "Captain", "Colonel", "Father", "Judge",
+        "Lady", "Lord", "Baron", "Baroness", "Councillor", "Inspector"
+    };
+
+    private static readonly string[] Surnames =
+    {
+        "Sterling", "Ashford", "Vex", "Nyx", "Calloway", "Rennick", "Thorne",
+        "Wexley", "Marlowe", "Delacroix", "Fenwick", "Okonkwo", "Sable",
+        "Ravensworth", "Blackwood", "Ivanova", "Castellane", "Duval",
+        "Hargrave", "Petrossian", "Quill", "Ashgrove", "Vandermeer",
+        "Lindqvist", "Moreau", "Castellan", "Beaumont", "Kowalski",
+        "Ferro", "Draycott", "Yusupov", "Mercer", "Halloran", "Osei",
+        "Winterbourne", "Sagara", "Voss", "Bellweather", "Crane", "Amari",
+        "Rothery", "Nakamura", "Sorrel", "Ballantine", "Whitlock", "Rey",
+        "Dumont", "Fairweather", "Achterberg", "Costa"
+    };
+
+    /// <summary>
+    /// The ones who do not give a name. Rarer than the titled clients, and
+    /// more memorable for it — these are the entries a player recognises in
+    /// the book six nights later.
+    /// </summary>
+    private static readonly string[] Aliases =
+    {
+        "The Broker", "The Professor", "Big Tony", "Slick Rick", "The Widow",
+        "The Cartographer", "Little Mercy", "The Auditor", "Grey Sunday",
+        "The Sommelier", "Uncle Bess", "The Understudy", "The Nightjar",
+        "Doctor Nobody", "The Second Son", "Quiet Ilse", "The Collector",
+        "Handsome Otto", "The Envoy", "Saint Kaspar"
+    };
+
+    /// <summary>
+    /// A client's name.
+    ///
+    /// This used to draw from a list of eight, with replacement, which meant
+    /// the patrons book routinely showed the same name as two different
+    /// people. The book is built on the premise of recognising someone, and
+    /// that premise does not survive a collision. Roughly a thousand
+    /// combinations now, so a repeat inside one campaign is a curiosity
+    /// rather than the norm.
+    /// </summary>
+    private static string GenerateClientName(RandomNumberGenerator rng)
+    {
+        // Roughly one client in six arrives under a name they made up.
+        if (rng.Randi() % 6 == 0) return Aliases[rng.Randi() % Aliases.Length];
+
+        return $"{Honorifics[rng.Randi() % Honorifics.Length]} " +
+               $"{Surnames[rng.Randi() % Surnames.Length]}";
+    }
+
     /// <summary>Generate a random client profile for testing.</summary>
     public static ClientProfile GenerateRandomClient()
     {
-        var rng = new RandomNumberGenerator();
-        rng.Randomize();
-
-        var names = new[] { "Mr. Sterling", "Madame Vex", "The Broker", "Ms. Nyx",
-                            "Big Tony", "Lady Ashford", "The Professor", "Slick Rick" };
+        // One long-lived stream rather than a freshly randomized generator per
+        // call — a new Randomize() every client made this the single largest
+        // source of irreproducibility in the whole simulation.
+        var rng = ClientRng;
 
         var allPrefs = (ClientPreference[])Enum.GetValues(typeof(ClientPreference));
         var prefs = allPrefs.OrderBy(_ => rng.Randi()).Take((int)(rng.Randi() % 3) + 1).ToArray();
@@ -714,7 +793,7 @@ public partial class ClientNegotiationHandler : Node
 
         return new ClientProfile
         {
-            Name = names[rng.Randi() % names.Length],
+            Name = GenerateClientName(rng),
             Description = "A randomly generated client.",
             Budget = 100 + rng.Randi() % 400,
             FairPrice = 50 + rng.Randi() % 150,
