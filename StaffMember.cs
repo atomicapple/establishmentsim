@@ -609,6 +609,58 @@ public partial class StaffMember : Resource
         AdjustLoyalty(-3f, $"neglected:{Ambition}");
     }
 
+    /// <summary>
+    /// Pay money against a debt-bound staff member's contract.
+    ///
+    /// This is the only route out for someone acquired through the debt
+    /// channel, and it is the whole point of the Freedom ambition. Without
+    /// it that ambition could never be fulfilled and a bound staff member's
+    /// loyalty fell forever with nothing the player could do about it — a
+    /// dead end rather than a decision.
+    /// </summary>
+    /// <param name="amount">Money applied to the debt.</param>
+    /// <returns>Amount actually used; zero if there was no debt to clear.</returns>
+    public double PayDownContract(double amount)
+    {
+        if (amount <= 0 || ContractDebt <= 0) return 0;
+
+        var applied = Math.Min(amount, ContractDebt);
+        ContractDebt -= applied;
+
+        // Progress is proportional to how much of the debt this cleared.
+        var share = (float)(applied / Math.Max(1.0, applied + ContractDebt));
+        AdvanceAmbition(Ambition == StaffAmbition.Freedom ? share * 100f : share * 25f);
+
+        AdjustLoyalty(share * 30f, "contract paid down");
+
+        if (ContractDebt <= 0)
+        {
+            GD.Print($"[Staff:{StaffName}] Contract cleared. They are free to leave — " +
+                     $"and choosing to stay now means something.");
+        }
+
+        return applied;
+    }
+
+    /// <summary>
+    /// Register that the house acted against the faction this staff member
+    /// holds a grudge toward. The other half of the Revenge ambition, which
+    /// was otherwise unreachable.
+    /// </summary>
+    /// <param name="faction">Faction that was struck at.</param>
+    /// <param name="weight">How significant the blow was, 0–1.</param>
+    /// <returns>True if it counted for this staff member.</returns>
+    public bool RegisterActionAgainst(string faction, float weight = 0.5f)
+    {
+        if (Ambition != StaffAmbition.Revenge || AmbitionFulfilled) return false;
+        if (string.IsNullOrEmpty(faction) || faction != AssociatedFaction) return false;
+
+        AdvanceAmbition(Mathf.Clamp(weight, 0f, 1f) * 45f);
+        AdjustLoyalty(6f, "struck at their old house");
+
+        return true;
+    }
+
     // ── Specialization ─────────────────────────────────────────────────
 
     /// <summary>Whether current stats qualify for a given specialization.</summary>

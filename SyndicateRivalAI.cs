@@ -219,6 +219,12 @@ public partial class SyndicateRivalAI : Node, ISaveableSystem
 
         LogAction(target, "counter_sabotage", "Player retaliated with sabotage", 10f);
         GD.Print($"[SyndicateRivalAI] Counter-sabotage on {syndicateName} (${cost:F0}). Power -15.");
+
+        // Anyone in the house carrying a grudge against this faction gets
+        // their satisfaction. Poached staff arrive with exactly that grudge,
+        // so this is the payoff for the Revenge ambition — which was
+        // otherwise unreachable and simply bled loyalty forever.
+        StaffRoster.Instance?.RegisterActionAgainstFaction(syndicateName, 0.6f);
     }
 
     // ── Utility ────────────────────────────────────────────────────────

@@ -131,6 +131,7 @@ public partial class SmokeTest : Node
             RunExpansionCheck();
             RunPolicyCheck();
             RunRegularsCheck();
+            RunAmbitionCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -446,6 +447,91 @@ public partial class SmokeTest : Node
         regulars.AdvanceNight();
 
         Check("a client who sours is written off", regulars.GetById(patron.Id) == null);
+    }
+
+    // ── Ambitions ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Every ambition must have a route to fulfilment.
+    ///
+    /// Freedom and Revenge had none: a debt-bound staff member wanted out
+    /// with no way to pay their contract down, and a poached one wanted their
+    /// old house hurt with nothing that registered it. Both simply bled
+    /// loyalty forever — a dead end rather than a decision, and both were
+    /// mine.
+    /// </summary>
+    private void RunAmbitionCheck()
+    {
+        GD.Print("\n── Ambitions ──");
+
+        var roster = StaffRoster.Instance;
+        var gsm = GameStateManager.Instance;
+        Check("roster present for ambition checks", roster != null);
+        if (roster == null || gsm == null) return;
+
+        gsm.Cash = 50000;
+
+        // ── Freedom: buy someone out of a debt contract ────────────────
+        var bound = new StaffMember
+        {
+            StaffName = "Vesna Baranov",
+            Origin = StaffOrigin.Debt,
+            Ambition = StaffAmbition.Freedom,
+            ContractDebt = 4000,
+            Salary = 120
+        };
+
+        Check("a bound staff member is added", roster.Add(bound));
+        Check("they cannot leave while bound", !roster.Remove(bound.Id, "quit"));
+        Check("their ambition starts unfulfilled", !bound.AmbitionFulfilled);
+
+        var loyaltyBefore = bound.Loyalty;
+        Check("half the contract can be paid", roster.PayDownContract(bound.Id, 2000));
+        Check("the debt fell", bound.ContractDebt < 4000);
+        Check("paying it down earned loyalty", bound.Loyalty > loyaltyBefore);
+
+        Check("the remainder can be cleared", roster.PayDownContract(bound.Id, 2000));
+        Check("the contract is gone", !bound.IsBound);
+        Check("freedom is fulfilled", bound.AmbitionFulfilled);
+        Check("they can now choose to leave", roster.Remove(bound.Id, "walked out"));
+
+        GD.Print($"  Freedom: contract cleared, loyalty {loyaltyBefore:F0} → {bound.Loyalty:F0}");
+
+        // ── Revenge: strike at the house they came from ────────────────
+        var syndicates = GetTree()?.Root?.FindChild("SyndicateRivalAI", true, false) as SyndicateRivalAI;
+        Check("syndicates present", syndicates != null);
+        if (syndicates == null) return;
+
+        var faction = syndicates.Syndicates.FirstOrDefault();
+        Check("a rival faction exists", faction != null);
+        if (faction == null) return;
+
+        var poached = new StaffMember
+        {
+            StaffName = "Sable Kovač",
+            Origin = StaffOrigin.Poached,
+            Ambition = StaffAmbition.Revenge,
+            AssociatedFaction = faction.Name,
+            Salary = 400
+        };
+
+        roster.Add(poached);
+
+        // An unrelated faction must not count.
+        Check("striking an unrelated house does nothing",
+            !poached.RegisterActionAgainst("Somebody Else"));
+
+        gsm.Cash = 50000;
+        syndicates.CounterSabotage(faction.Name, 1000);
+
+        Check("striking their old house advanced revenge", poached.AmbitionProgress > 0f);
+        GD.Print($"  Revenge: progress {poached.AmbitionProgress:F0} after one strike at {faction.Name}");
+
+        // Enough blows should finish it.
+        for (var i = 0; i < 3; i++) poached.RegisterActionAgainst(faction.Name, 1f);
+        Check("sustained retaliation fulfils revenge", poached.AmbitionFulfilled);
+
+        roster.Remove(poached.Id, "test cleanup");
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────

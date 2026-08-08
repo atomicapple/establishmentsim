@@ -352,6 +352,68 @@ public partial class StaffRoster : Node
                  $"satisfaction {GetAverageSatisfaction():F0}, loyalty {GetAverageLoyalty():F0}.");
     }
 
+    // ── Ambitions ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Pay against a staff member's contract debt out of house funds.
+    ///
+    /// Routed through the ledger so buying someone out shows up in the books
+    /// as what it is — a real cost with no revenue attached, paid for a
+    /// reason that is not financial.
+    /// </summary>
+    /// <returns>True if any money was applied.</returns>
+    public bool PayDownContract(string staffId, double amount)
+    {
+        var staff = GetById(staffId);
+        if (staff == null || amount <= 0) return false;
+
+        if (!staff.IsBound)
+        {
+            GD.Print($"[StaffRoster] {staff.StaffName} owes the house nothing.");
+            return false;
+        }
+
+        var gsm = GameStateManager.Instance;
+        if (gsm == null || gsm.Cash < amount)
+        {
+            GD.Print($"[StaffRoster] Cannot afford ${amount:F0} toward a contract.");
+            return false;
+        }
+
+        var applied = staff.PayDownContract(amount);
+        if (applied <= 0) return false;
+
+        var ledger = GetTree()?.Root?.FindChild("FinancialLedger", true, false) as FinancialLedger;
+
+        if (ledger != null)
+            ledger.RecordExpense(ExpenseCategory.StaffSalaries, applied,
+                $"Contract paid down for {staff.StaffName}");
+        else
+            gsm.Cash -= applied;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Tell the roster the house has acted against a faction, so anyone
+    /// carrying a grudge against it gets their satisfaction.
+    /// </summary>
+    /// <returns>How many staff it mattered to.</returns>
+    public int RegisterActionAgainstFaction(string faction, float weight = 0.5f)
+    {
+        if (string.IsNullOrEmpty(faction)) return 0;
+
+        var counted = 0;
+
+        foreach (var staff in _staff.Values)
+            if (staff.RegisterActionAgainst(faction, weight)) counted++;
+
+        if (counted > 0)
+            GD.Print($"[StaffRoster] Moving against {faction} mattered to {counted} of the house.");
+
+        return counted;
+    }
+
     // ── Persistence support ────────────────────────────────────────────
 
     /// <summary>
