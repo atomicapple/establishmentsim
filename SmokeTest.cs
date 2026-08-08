@@ -136,6 +136,7 @@ public partial class SmokeTest : Node
             RunLicenceCheck();
             RunUnionCheck();
             RunCityCheck();
+            RunCrisisCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -912,6 +913,107 @@ public partial class SmokeTest : Node
 
         GD.Print($"  {macro.GetShortCaption()} — bribe bought {boughtQuiet:F1} " +
                  $"heat quiet, {boughtCrackdown:F1} under a crackdown");
+    }
+
+    /// <summary>
+    /// Crises, and specifically the deadlock.
+    ///
+    /// The director set <c>_crisisActive</c> on trigger and cleared it only
+    /// inside <c>ExecuteChoice</c>, which needs a scenario — and the scenario
+    /// was supposed to arrive from an out-of-process language model reading
+    /// a payload off stdout. Nothing reads it. So the first crisis latched
+    /// the director for the rest of the campaign and no crisis ever reached
+    /// the player. The system was never instantiated, which is the only
+    /// reason that was survivable.
+    /// </summary>
+    private void RunCrisisCheck()
+    {
+        GD.Print("\n── Crises ──");
+
+        var crises = _boot.Crises;
+        var gsm = GameStateManager.Instance;
+
+        Check("crisis director is instantiated", crises != null);
+        if (crises == null || gsm == null) return;
+
+        // Earlier sections deliberately wreck the world — the union check
+        // hires strikebreakers, which drops public sentiment past the scandal
+        // threshold — so a crisis is very often already running by the time
+        // we get here. That the triggers fire unprompted is the system
+        // working; clear it and start from a known state.
+        var arrivedOnItsOwn = crises.CrisisActive;
+        crises.DismissCrisis();
+
+        Check("dismissing leaves no crisis behind", !crises.CrisisActive);
+
+        if (arrivedOnItsOwn)
+            GD.Print("  a crisis had already triggered on its own from the world state");
+
+        crises.CooldownDays = 0;
+
+        // ── A crisis arrives complete ──────────────────────────────────
+        crises.ForceCrisis(CrisisTrigger.PoliceRaid);
+        Check("the forced crisis is the one asked for",
+            crises.ActiveScenario?.Trigger == nameof(CrisisTrigger.PoliceRaid));
+
+        Check("forcing a crisis raises one", crises.CrisisActive);
+        Check("the scenario is present immediately, not awaited",
+            crises.ActiveScenario != null);
+        Check("it has something to read",
+            !string.IsNullOrWhiteSpace(crises.ActiveScenario?.Narrative));
+        Check("it offers at least two ways out",
+            crises.ActiveScenario?.Choices.Count >= 2);
+
+        foreach (var choice in crises.ActiveScenario.Choices)
+        {
+            Check($"\"{choice.Label}\" states a consequence",
+                choice.Effects != null &&
+                (choice.Effects.Cash != 0 || choice.Effects.Heat != 0 ||
+                 choice.Effects.Reputation != 0 || choice.Effects.PublicSentiment != 0));
+        }
+
+        // ── Choosing actually does something ───────────────────────────
+        gsm.Cash = 50000;
+        var cashBefore = gsm.Cash;
+        var expensesBefore = _boot.Ledger.GetTotalExpenses();
+        var costed = crises.ActiveScenario.Choices[0].Effects.Cash;
+
+        Check("a choice can be taken", crises.ExecuteChoice(0));
+        Check("taking it ends the crisis", !crises.CrisisActive);
+        Check("the scenario is cleared", crises.ActiveScenario == null);
+        Check($"it cost what it said (${-costed:N0})", gsm.Cash < cashBefore);
+        Check("and it is in the books, not taken off cash silently",
+            _boot.Ledger.GetTotalExpenses() > expensesBefore);
+
+        // ── The deadlock, directly ─────────────────────────────────────
+        crises.ForceCrisis(CrisisTrigger.WorkerWalkout);
+        Check("a second crisis can be raised after the first was answered",
+            crises.CrisisActive);
+
+        crises.DismissCrisis();
+        Check("dismissing without deciding also clears it", !crises.CrisisActive);
+
+        crises.ForceCrisis(CrisisTrigger.FinancialCollapse);
+        Check("and a third still arrives after a dismissal", crises.CrisisActive);
+
+        Check("a refused choice index does not latch the director",
+            !crises.ExecuteChoice(99) && crises.CrisisActive);
+
+        crises.DismissCrisis();
+
+        // ── Every trigger has authored content ─────────────────────────
+        foreach (CrisisTrigger trigger in Enum.GetValues<CrisisTrigger>())
+        {
+            if (trigger == CrisisTrigger.None) continue;
+
+            var scenario = crises.GenerateFallbackScenario(trigger);
+            Check($"{trigger} has a written scenario",
+                scenario != null && scenario.Choices.Count >= 2 &&
+                !string.IsNullOrWhiteSpace(scenario.Title));
+        }
+
+        crises.CooldownDays = 6;
+        GD.Print($"  {crises}");
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────

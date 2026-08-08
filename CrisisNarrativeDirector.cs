@@ -69,9 +69,21 @@ public partial class CrisisNarrativeDirector : Node
             GameStateManager.Instance.OnDailyTick -= OnDailyTick;
     }
 
+    /// <summary>
+    /// Nights that must pass between crises. Without it a running strike
+    /// satisfies its trigger every single night, and the player would face
+    /// the same decision at every Ledger until they settled it.
+    /// </summary>
+    public int CooldownDays { get; set; } = 6;
+
+    private int _lastCrisisDay = int.MinValue / 2;
+
     private void OnDailyTick(double cash, float reputation, float heat, float sentiment)
     {
         if (_crisisActive) return;
+
+        var day = GameStateManager.Instance?.DayCount ?? 0;
+        if (day - _lastCrisisDay < CooldownDays) return;
 
         // Monitor for crisis triggers
         CrisisTrigger? trigger = null;
@@ -82,7 +94,23 @@ public partial class CrisisNarrativeDirector : Node
         else if (cash < -500) trigger = CrisisTrigger.FinancialCollapse;
 
         if (trigger.HasValue)
+        {
+            _lastCrisisDay = day;
             TriggerCrisis(trigger.Value);
+        }
+    }
+
+    /// <summary>
+    /// Raise a crisis now, ignoring both the trigger conditions and the
+    /// cooldown. The organic route needs heat above 85 or the house in debt,
+    /// which no test or capture run can arrange incidentally.
+    /// </summary>
+    public void ForceCrisis(CrisisTrigger trigger)
+    {
+        if (_crisisActive) return;
+
+        _lastCrisisDay = GameStateManager.Instance?.DayCount ?? 0;
+        TriggerCrisis(trigger);
     }
 
     private void TriggerCrisis(CrisisTrigger trigger)
@@ -100,11 +128,43 @@ public partial class CrisisNarrativeDirector : Node
             _ => "An unknown crisis has occurred."
         };
 
-        EmitSignal(SignalName.OnCrisisTriggered, (int)trigger, desc);
+        // The authored scenario is installed *first*, not as a timeout
+        // fallback.
+        //
+        // This used to set _crisisActive and then print a payload for an
+        // out-of-process LLM to answer. Nothing answers it, and _crisisActive
+        // is only ever cleared inside ExecuteChoice — which needs a scenario
+        // to execute a choice from. So the first crisis latched the director
+        // permanently and no crisis ever reached the player. A core loop that
+        // stalls when a language model is absent is not a core loop; the
+        // authored path has to be the one that runs, with generation layered
+        // on top of it.
+        _activeScenario = GenerateFallbackScenario(trigger);
+        _history.Add(_activeScenario);
 
-        // Build MCP payload with full venue state
-        string payload = BuildCrisisPayload(trigger);
-        TransmitMcpPayload(payload);
+        EmitSignal(SignalName.OnCrisisTriggered, (int)trigger, desc);
+        EmitSignal(SignalName.OnScenarioReceived,
+            JsonSerializer.Serialize(_activeScenario, _jsonOpts));
+
+        // Still offered to anything listening on stdout. If a richer scenario
+        // comes back before the player chooses, ParseScenario replaces this
+        // one; if nothing ever comes back, the night carries on regardless.
+        TransmitMcpPayload(BuildCrisisPayload(trigger));
+    }
+
+    /// <summary>
+    /// Abandon the current crisis without applying any choice. The screen
+    /// calls this if it is dismissed, so a closed window cannot leave the
+    /// director latched — the failure mode this whole system had.
+    /// </summary>
+    public void DismissCrisis()
+    {
+        if (!_crisisActive) return;
+
+        _crisisActive = false;
+        _activeScenario = null;
+
+        GD.Print("[CrisisDirector] Crisis dismissed without a decision.");
     }
 
     /// <summary>Build full venue state payload for MCP transmission.</summary>
@@ -159,7 +219,8 @@ public partial class CrisisNarrativeDirector : Node
     /// <summary>Execute a player choice from the active scenario.</summary>
     public bool ExecuteChoice(int choiceIndex)
     {
-        if (_activeScenario == null || choiceIndex >= _activeScenario.Choices.Count)
+        if (_activeScenario == null ||
+            choiceIndex < 0 || choiceIndex >= _activeScenario.Choices.Count)
             return false;
 
         var choice = _activeScenario.Choices[choiceIndex];
@@ -167,7 +228,18 @@ public partial class CrisisNarrativeDirector : Node
 
         if (gsm != null)
         {
-            gsm.Cash += choice.Effects.Cash;
+            // Through the ledger, so a crisis decision appears in the books
+            // as a line the player can find again later.
+            var ledger = GetTree()?.Root?.FindChild("FinancialLedger", true, false) as FinancialLedger;
+
+            if (ledger != null && choice.Effects.Cash < 0)
+                ledger.RecordExpense(ExpenseCategory.LegalDefense, -choice.Effects.Cash,
+                    $"{_activeScenario.Title}: {choice.Label}");
+            else if (ledger != null && choice.Effects.Cash > 0)
+                ledger.RecordRevenue(RevenueCategory.InformationSales, choice.Effects.Cash,
+                    $"{_activeScenario.Title}: {choice.Label}");
+            else
+                gsm.Cash += choice.Effects.Cash;
 
             if (choice.Effects.Heat != 0)
             {
@@ -181,34 +253,173 @@ public partial class CrisisNarrativeDirector : Node
         }
 
         _crisisActive = false;
+        _activeScenario = null;
+
         EmitSignal(SignalName.OnChoiceExecuted, choice.Label);
         GD.Print($"[CrisisDirector] Choice executed: {choice.Label}");
         return true;
     }
 
-    /// <summary>Generate a deterministic fallback crisis scenario if MCP times out.</summary>
-    public CrisisScenario GenerateFallbackScenario(CrisisTrigger trigger)
+    /// <summary>
+    /// The authored scenario for a trigger. This is the primary path, not a
+    /// timeout fallback, so it has to be worth reading on its own.
+    ///
+    /// Each one offers the same three shapes — pay it away, brazen it out, or
+    /// take the honest loss — but the shapes cost different things depending
+    /// on what went wrong, and none of them is free.
+    /// </summary>
+    public CrisisScenario GenerateFallbackScenario(CrisisTrigger trigger) => trigger switch
     {
-        return new CrisisScenario
+        CrisisTrigger.PoliceRaid => new CrisisScenario
         {
-            Title = trigger switch
-            {
-                CrisisTrigger.PoliceRaid => "Raid Fallout",
-                CrisisTrigger.PublicScandal => "Damage Control",
-                CrisisTrigger.WorkerWalkout => "Labor Crisis",
-                CrisisTrigger.FinancialCollapse => "Cash Emergency",
-                _ => "Crisis Management"
-            },
-            Narrative = $"A {trigger.ToString().ToLower()} has occurred. You must decide how to respond.",
+            Title = "The Raid",
             Trigger = trigger.ToString(),
-            Choices = new List<CrisisChoice>
+            Narrative =
+                "They came through the front door at half past one and did not " +
+                "pretend to be looking for anything in particular. Two of your " +
+                "people are in a van on the street. The sergeant is standing in " +
+                "your lobby with his hat still on, waiting to be spoken to.",
+            Choices =
             {
-                new() { Label="A: Pragmatic", Description="Take the safe route.", Effects=new(){Cash=-200,Heat=-10,Reputation=-2}},
-                new() { Label="B: Bold", Description="Risk it for a better outcome.", Effects=new(){Cash=-100,Heat=5,Reputation=3}},
-                new() { Label="C: Ethical", Description="Do the right thing.", Effects=new(){Cash=-300,Heat=-15,Reputation=5,PublicSentiment=10}}
+                new()
+                {
+                    Label = "Pay him where he stands",
+                    Description = "$1,200, and the van doors open. Everyone sees you do it.",
+                    Effects = new() { Cash = -1200, Heat = -25, Reputation = -4, PublicSentiment = -5 }
+                },
+                new()
+                {
+                    Label = "Say nothing and let it run",
+                    Description = "Costs nothing tonight. They take what they came for.",
+                    Effects = new() { Cash = -350, Heat = -8, Reputation = -8, PublicSentiment = -2 }
+                },
+                new()
+                {
+                    Label = "Call a lawyer at this hour",
+                    Description = "$900 and a long night, but it happens on the record.",
+                    Effects = new() { Cash = -900, Heat = -18, Reputation = 4, PublicSentiment = 8 }
+                }
             }
-        };
-    }
+        },
+
+        CrisisTrigger.PublicScandal => new CrisisScenario
+        {
+            Title = "In the Morning Edition",
+            Trigger = trigger.ToString(),
+            Narrative =
+                "A columnist who has never set foot in the house has written " +
+                "eleven inches about it anyway. Half of it is wrong and the " +
+                "wrong half is the memorable half. By noon three neighbours " +
+                "have found the courage to be quoted.",
+            Choices =
+            {
+                new()
+                {
+                    Label = "Buy the retraction",
+                    Description = "$800 to the right desk. It runs on page nine.",
+                    Effects = new() { Cash = -800, Heat = 3, Reputation = 2, PublicSentiment = 6 }
+                },
+                new()
+                {
+                    Label = "Answer it in public",
+                    Description = "Free, and it keeps the story alive another week.",
+                    Effects = new() { Cash = 0, Heat = 8, Reputation = 6, PublicSentiment = -6 }
+                },
+                new()
+                {
+                    Label = "Close for three nights",
+                    Description = "Lose the trade. Let them find something else to write about.",
+                    Effects = new() { Cash = -1500, Heat = -15, Reputation = -2, PublicSentiment = 14 }
+                }
+            }
+        },
+
+        CrisisTrigger.WorkerWalkout => new CrisisScenario
+        {
+            Title = "Nobody Came Down",
+            Trigger = trigger.ToString(),
+            Narrative =
+                "The doors are open, the lamps are lit, and the first floor is " +
+                "empty. They are all upstairs in one room with the door shut, " +
+                "and they have been in there long enough to have agreed on " +
+                "something.",
+            Choices =
+            {
+                new()
+                {
+                    Label = "Go up and listen",
+                    Description = "Costs an evening's takings and some of your standing with them.",
+                    Effects = new() { Cash = -400, Heat = 0, Reputation = 2, PublicSentiment = 8 }
+                },
+                new()
+                {
+                    Label = "Open without them",
+                    Description = "Serve who you can. They will remember which you chose.",
+                    Effects = new() { Cash = 200, Heat = 5, Reputation = -3, PublicSentiment = -10 }
+                },
+                new()
+                {
+                    Label = "Send everyone home paid",
+                    Description = "$700 for a night that earns nothing, and no grievance left standing.",
+                    Effects = new() { Cash = -700, Heat = -5, Reputation = 3, PublicSentiment = 12 }
+                }
+            }
+        },
+
+        CrisisTrigger.FinancialCollapse => new CrisisScenario
+        {
+            Title = "The Books Do Not Close",
+            Trigger = trigger.ToString(),
+            Narrative =
+                "Upkeep, wages and the licence renewal all fall in the same " +
+                "week, and there is not enough behind the bar to meet any two " +
+                "of them. Somebody is going to be told they are not being paid " +
+                "on Friday. The only question is who.",
+            Choices =
+            {
+                new()
+                {
+                    Label = "Borrow from Ash Row",
+                    Description = "$2,000 tonight. They will want it back, and they will say when.",
+                    Effects = new() { Cash = 2000, Heat = 12, Reputation = -3, PublicSentiment = -4 }
+                },
+                new()
+                {
+                    Label = "Sell what is not nailed down",
+                    Description = "$900 and the rooms look poorer for it.",
+                    Effects = new() { Cash = 900, Heat = 0, Reputation = -5, PublicSentiment = 0 }
+                },
+                new()
+                {
+                    Label = "Tell the staff the truth",
+                    Description = "Raises nothing. Some of them stay anyway.",
+                    Effects = new() { Cash = 0, Heat = -3, Reputation = 4, PublicSentiment = 10 }
+                }
+            }
+        },
+
+        _ => new CrisisScenario
+        {
+            Title = "A Difficult Night",
+            Trigger = trigger.ToString(),
+            Narrative = "Something has gone wrong and it will not wait until morning.",
+            Choices =
+            {
+                new()
+                {
+                    Label = "Spend money on it",
+                    Description = "$400, and it goes away quietly.",
+                    Effects = new() { Cash = -400, Heat = -8, Reputation = 0 }
+                },
+                new()
+                {
+                    Label = "Leave it alone",
+                    Description = "Free. It does not go away.",
+                    Effects = new() { Cash = 0, Heat = 6, Reputation = -3 }
+                }
+            }
+        }
+    };
 
     private bool IsStrikeActive()
     {

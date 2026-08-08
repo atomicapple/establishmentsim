@@ -82,6 +82,13 @@ public partial class GameScene : Node
     /// </summary>
     [Export] public bool CaptureCrackdown { get; set; }
 
+    /// <summary>
+    /// Capture runs only: raise this crisis and photograph the decision.
+    /// Empty for none. The organic triggers need heat over 85 or the house
+    /// several hundred dollars in debt.
+    /// </summary>
+    [Export] public string CaptureCrisis { get; set; } = "";
+
     /// <summary>Seconds before an automatic screenshot. Zero disables it.</summary>
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
@@ -98,6 +105,7 @@ public partial class GameScene : Node
     private PatronsPanel _patrons;
     private LicencesPanel _licences;
     private UnionPanel _union;
+    private CrisisScreen _crisis;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -156,6 +164,11 @@ public partial class GameScene : Node
 
         _ledger = new NightLedgerScreen { Name = "NightLedger" };
         AddChild(_ledger);
+
+        // Above the ledger, because a crisis is what the player deals with
+        // before they are allowed to move on to the next night.
+        _crisis = new CrisisScreen { Name = "CrisisScreen" };
+        AddChild(_crisis);
 
         // Side panels are Controls, so they need a CanvasLayer to sit above
         // the 3D viewport.
@@ -250,6 +263,9 @@ public partial class GameScene : Node
         _view.OnRoomClicked += OnRoomClicked;
 
         _ledger.OnContinuePressed += OnLedgerContinue;
+
+        _crisis.OnChoiceTaken += OnCrisisChoiceTaken;
+        _crisis.OnDismissed += OnCrisisDismissed;
 
         _decorate.OnRoomChanged += OnDecorateRoomChanged;
         _decorate.OnCloseRequested += () => _decorate.Visible = false;
@@ -578,6 +594,14 @@ public partial class GameScene : Node
             return;
         }
 
+        if (!string.IsNullOrEmpty(CaptureCrisis) &&
+            System.Enum.TryParse<CrisisTrigger>(CaptureCrisis, true, out var forced))
+        {
+            _boot.Crises?.ForceCrisis(forced);
+            ShowPendingCrisis();
+            return;
+        }
+
         if (CaptureUnionPanel)
         {
             if (CaptureUnionStrike) _boot.Union?.ForceStrike();
@@ -788,6 +812,54 @@ public partial class GameScene : Node
             return;
         }
 
+        // A crisis takes precedence over the books. It is the one thing the
+        // player is not allowed to scroll past.
+        if (ShowPendingCrisis()) return;
+
+        _ledger.Show(_boot.Night.CurrentReport);
+    }
+
+    // ── Crises ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Put an unanswered crisis on screen, if there is one.
+    /// </summary>
+    /// <returns>True if a crisis was shown, so the Ledger should wait.</returns>
+    private bool ShowPendingCrisis()
+    {
+        var director = _boot?.Crises;
+        if (director?.CrisisActive != true || director.ActiveScenario == null) return false;
+
+        return _crisis.Show(director.ActiveScenario);
+    }
+
+    private void OnCrisisChoiceTaken(int choiceIndex)
+    {
+        var director = _boot?.Crises;
+
+        // Hide first: ExecuteChoice moves cash and heat, and the HUD refresh
+        // that follows should not happen behind a modal that is about to
+        // close anyway.
+        _crisis.Hide();
+
+        if (director?.ExecuteChoice(choiceIndex) != true)
+        {
+            // Never leave the director latched on a refused choice — that is
+            // the exact deadlock this system shipped with.
+            director?.DismissCrisis();
+        }
+
+        _hud?.RefreshAll();
+        _staff?.Refresh();
+
+        // The books still have to be read.
+        _ledger.Show(_boot.Night.CurrentReport);
+    }
+
+    private void OnCrisisDismissed()
+    {
+        _crisis.Hide();
+        _boot?.Crises?.DismissCrisis();
         _ledger.Show(_boot.Night.CurrentReport);
     }
 

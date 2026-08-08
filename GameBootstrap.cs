@@ -50,6 +50,7 @@ public partial class GameBootstrap : Node
     public RegularsRegistry Regulars { get; private set; }
     public FacilityLicences Licences { get; private set; }
     public UnionizationManager Union { get; private set; }
+    public CrisisNarrativeDirector Crises { get; private set; }
 
     private readonly RandomNumberGenerator _rng = new();
 
@@ -86,6 +87,7 @@ public partial class GameBootstrap : Node
         Add<BlackmailNetwork>("BlackmailNetwork");
         Add<SyndicateRivalAI>("SyndicateRivalAI");
         Add<NarrativeArcTracker>("NarrativeArcTracker");
+        Crises = Add<CrisisNarrativeDirector>("CrisisNarrativeDirector");
         Regulars = Add<RegularsRegistry>("RegularsRegistry");
         Licences = Add<FacilityLicences>("FacilityLicences");
         Add<RealEstateMarket>("RealEstateMarket");

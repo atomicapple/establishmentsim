@@ -48,6 +48,8 @@ public partial class BalanceHarness : Node
 
     private readonly Dictionary<EncounterQuality, int> _qualityTotals = new();
 
+    private int _crisesAnswered;
+
     public override void _Ready()
     {
         _boot = new GameBootstrap
@@ -102,6 +104,18 @@ public partial class BalanceHarness : Node
 
     private void FinishNight()
     {
+        // The harness plays naively, but it cannot ignore a crisis — an
+        // unanswered one latches the director and every later crisis is
+        // silently suppressed. It always takes the first option, which is
+        // the "pay it away" shape, so the run measures a house that responds
+        // without thinking rather than one that cannot respond at all.
+        var crises = _boot.Crises;
+        if (crises?.CrisisActive == true)
+        {
+            _crisesAnswered++;
+            if (!crises.ExecuteChoice(0)) crises.DismissCrisis();
+        }
+
         var r = _boot.Night.CurrentReport;
         var roster = StaffRoster.Instance;
         var gsm = GameStateManager.Instance;
@@ -194,6 +208,8 @@ public partial class BalanceHarness : Node
         GD.Print($"\n  appointment {apptFirst:F1} → {apptLast:F1} " +
                  $"({apptLast - apptFirst:+0.0;-0.0;0} over {_samples.Count} nights, " +
                  $"unattended)");
+
+        GD.Print($"  crises faced {_crisesAnswered}");
 
         Verdict("furniture wear does not collapse the house unattended",
             apptFirst <= 0f || apptLast > apptFirst * 0.6f);

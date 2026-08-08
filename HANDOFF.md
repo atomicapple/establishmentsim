@@ -35,7 +35,7 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 # The game, windowed
 ./Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x900 main.tscn
 
-# Smoke test — 157 checks, the main safety net
+# Smoke test — 181 checks, the main safety net
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . smoke_test.tscn
 
 # Balance harness — 20 simulated nights + a six-point verdict
@@ -68,7 +68,7 @@ Self-driving screenshot runs. Each sets flags on `GameScene` and quits.
 `main_capture` · `closeup_capture` · `ledger_capture` · `staff_capture` ·
 `hiring_capture` · `influence_capture` · `policy_capture` ·
 `patrons_capture` · `licences_capture` · `union_capture` ·
-`union_strike_capture` · `crackdown_capture`
+`union_strike_capture` · `crackdown_capture` · `crisis_capture`
 
 Output lands in
 `C:\Users\tobia\AppData\Roaming\Godot\app_userdata\Establishment Simulator\screenshots\`.
@@ -175,6 +175,12 @@ handler in `GameScene` both read it, so they cannot disagree.
 `UnionPanel` is the exception that also opens itself: `OnStrikeTriggered`
 raises the alert chip and brings the panel up, because a strike is the one
 event that acts on the player unbidden.
+
+Two modal screens sit above everything, both `CanvasLayer` and both holding
+a real pause: `NightLedgerScreen` and `CrisisScreen`. A crisis takes
+precedence — the Ledger waits behind it. Both shadow `Hide()` deliberately,
+because a plain visibility toggle would leave the game frozen behind an
+invisible window.
 
 ---
 
@@ -294,36 +300,44 @@ characters.
 
 ## What's left, in the order I'd do it
 
-1. **`CrisisNarrativeDirector` can deadlock.** `_crisisActive` latches true on
-   trigger and only clears in `ExecuteChoice`. If no scenario ever arrives —
-   it expects an out-of-process LLM to read `<<<MCP_CRISIS_PAYLOAD>>>` from
-   stdout — it hangs permanently. Needs the fallback path to be the primary
-   one. It is currently **not instantiated**, so it is latent, not live.
+1. **Crises never fire in a normal game.** The director is live, the screen
+   works, the four scenarios are written — and a 50-night naive run faces
+   **zero** of them. The triggers are set at catastrophe level: heat above
+   85 (it peaks around 70), sentiment below 15, an active strike, or the
+   house more than $500 in debt. The design calls for the Ledger to end with
+   one to three decisions as the pacing heartbeat; at these thresholds it
+   ends with none. Lowering them is a design call about how often the game
+   should interrupt, so the numbers are untouched.
 
 2. **Reputation has no recovery term.** Arrivals scale with it, so a shock
    that lowers reputation lowers the number of chances to earn it back. Over
-   50 nights it falls 83 → 25 and never returns. Whether that is a death
-   spiral or the intended ratchet is a design call, not a bug — but it is the
-   single largest unaddressed force in the long game.
+   50 nights it falls 83 → 25 and never returns. Death spiral or intended
+   ratchet is a design call, but it is the largest unaddressed force in the
+   long game.
 
 3. **`PropertyValueMultiplier` has no consumers.** `RealEstateMarket` is the
    obvious one; the macro phase is supposed to move district prices and does
-   not. (`BribeCostMultiplier` had the same problem and is now wired, because
-   the city chip states it to the player.)
+   not. (`BribeCostMultiplier` had the same problem and is now wired.)
 
 4. **`ClientQueueManager` has no callers at all.** ~300 lines including a
    fight system with its own reputation penalty, none of it reachable.
    `NightDirector` does the queueing. Delete it or wire the fights.
 
-5. **The three `HudTool` chips** (Cleaning, Alert, Info) emit
+5. **`EventDialogUI` is a second, unreachable crisis dialog** with its own
+   parallel payload types (`AiEventPayload`), hardcoded colours instead of
+   `IsoTheme`, and the bad `SetAnchorsPreset`. `CrisisScreen` supersedes it.
+   Only `TutorialManager` and `TutorialSequenceManager` reference it, and
+   they are themselves only referenced by `OnboardingTestSuite`. All four
+   are candidates for deletion.
+
+6. **The three `HudTool` chips** (Cleaning, Alert, Info) emit
    `OnToolRequested` and nothing consumes it. The Alert chip is written to,
    but pressing any of the three does nothing.
 
-6. **`RollReturningClient` iterates a `Dictionary<string, Patron>`** keyed by
+7. **`RollReturningClient` iterates a `Dictionary<string, Patron>`** keyed by
    Guid. Iteration order is stable within a process but is not part of the
    seed, so it is the one part of a "deterministic" run that could still
-   drift if the dictionary were ever rebuilt in a different order. Not
-   currently observed; an ordered list would settle it.
+   drift if the dictionary were ever rebuilt in a different order.
 
 ---
 
