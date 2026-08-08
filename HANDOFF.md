@@ -63,6 +63,7 @@ balance harness catches economic regressions the smoke test cannot see.
 |---|---|
 | `character_probe.tscn` | Do the character `.glb` files load? What clips? |
 | `room_probe.tscn` | What meshes does a furnished room actually build, and where? |
+| `suite_probe.tscn` | A tight camera on one furnished suite, doors shut. For judging placement and scale. |
 
 `room_probe` exists because three screenshots in a row *appeared* to show
 empty rooms and I nearly rewrote the furniture builders. The probe proved the

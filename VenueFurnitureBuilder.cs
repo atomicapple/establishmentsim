@@ -44,39 +44,38 @@ public static class VenueFurnitureBuilder
     {
         if (room == null || root == null) return;
 
-        var pieces = room.Furniture;
-        if (pieces == null || pieces.Count == 0) return;
-
-        // Several pieces of one category fan out from that category's slot,
-        // so three lamps read as three lamps rather than one thick one.
+        // Positions come from RoomFurnitureLayout, which places pieces in
+        // relation to each other — nightstand beside the bed, lamp on the
+        // nightstand, mirror on a wall the bed does not already own — rather
+        // than dropping each category at one fixed slot.
+        var placements = RoomFurnitureLayout.Arrange(room, origin, size);
         var seen = new Dictionary<FurnitureCategory, int>();
 
-        foreach (var item in pieces)
+        foreach (var placement in placements)
         {
+            var item = placement.Item;
             if (item == null) continue;
 
             int index = seen.TryGetValue(item.Category, out int n) ? n : 0;
             seen[item.Category] = index + 1;
 
-            var slot = GetSlot(item.Category);
-
-            // Wall-mounted and wall-backed pieces only ever slide *along* the
-            // wall; nudging them inward would leave a picture floating in air.
-            bool pinnedToWall = item.Category == FurnitureCategory.Decor
-                             || item.Category == FurnitureCategory.Bar;
-
-            float u = Mathf.Clamp(slot.X + index * 0.17f, 0.12f, 0.88f);
-            float v = pinnedToWall
-                ? slot.Y
-                : Mathf.Clamp(slot.Y + index * 0.11f, 0.12f, 0.88f);
-
-            var at = VenueSpace.RoomPoint(origin, size, u, v);
-
-            var piece = BuildPiece(item, at);
+            // Built at the local origin inside a holder that carries both the
+            // position and the turn. Rotating a node whose contents sit at a
+            // world offset orbits them around the world origin instead of
+            // spinning them in place — which put the first rotated armchair
+            // outside the building.
+            var piece = BuildPiece(item, Vector3.Zero);
             if (piece == null) continue;
 
-            piece.Name = SafeName($"{item.Category}_{index}");
-            root.AddChild(piece);
+            var holder = new Node3D
+            {
+                Name = SafeName($"{item.Category}_{index}"),
+                Position = placement.Position,
+                Rotation = new Vector3(0f, placement.Yaw, 0f)
+            };
+
+            holder.AddChild(piece);
+            root.AddChild(holder);
         }
     }
 
@@ -487,13 +486,15 @@ public static class VenueFurnitureBuilder
 
         if (source.Duplicate() is not Node3D instance) return null;
 
-        float target = FurnitureModelRegistry.GetTargetHeight(item.Category);
-        float scale = FitScale(instance, target);
+        float scale = RoomFurnitureLayout.FitsByFootprint(item.Category)
+            ? FitScaleByFootprint(instance, RoomFurnitureLayout.FootprintTarget(item.Category))
+            : FitScale(instance, FurnitureModelRegistry.GetTargetHeight(item.Category));
 
         instance.Scale = new Vector3(scale, scale, scale);
-        instance.Position = item.Category == FurnitureCategory.Decor
-            ? at + new Vector3(0f, VenueSpace.WallHeight * 0.45f, 0f)
-            : at;
+
+        // The layout already carries the full position, including the height
+        // of a wall-hung mirror and the top of the table a lamp stands on.
+        instance.Position = at;
 
         // A model exported without textures renders flat white and loses all
         // style identity — five different beds become the same pale block.
@@ -594,6 +595,33 @@ public static class VenueFurnitureBuilder
     /// export scale, so measuring is the only way to get a lamp that is lamp
     /// sized next to a hand-authored 2 m tile.
     /// </summary>
+    /// <summary>
+    /// Scale a model so its longest horizontal dimension matches
+    /// <paramref name="targetWidth"/>.
+    ///
+    /// For anything flat or long — rugs, beds, baths, bars — height is the
+    /// wrong reference. A rug normalised to a 3 cm height is scaled by its
+    /// own thickness, so how wide it ends up is an accident of how the model
+    /// was exported. That is why rugs were far too small.
+    /// </summary>
+    private static float FitScaleByFootprint(Node3D model, float targetWidth)
+    {
+        var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+        var max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+        bool any = false;
+
+        foreach (var child in model.GetChildren())
+            CollectExtent(child, Transform3D.Identity, ref min, ref max, ref any);
+
+        if (model is MeshInstance3D rootMesh && rootMesh.Mesh != null)
+            MergeAabb(Transform3D.Identity, rootMesh.Mesh.GetAabb(), ref min, ref max, ref any);
+
+        if (!any) return 1f;
+
+        float longest = Mathf.Max(Mathf.Max(max.X - min.X, max.Z - min.Z), 0.0001f);
+        return Mathf.Clamp(targetWidth / longest, 0.0001f, 10000f);
+    }
+
     private static float FitScale(Node3D model, float targetHeight)
     {
         var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
