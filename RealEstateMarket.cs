@@ -81,6 +81,13 @@ public partial class RealEstateMarket : Node
 
     private void OnDailyTick(double cash, float rep, float heat, float sent)
     {
+        // The city's mood moves property with it. MacroEconomyEngine has
+        // computed PropertyValueMultiplier since it was written — 1.3 in a
+        // boom, 0.7 in a recession, 0.8 under a crackdown — and nothing has
+        // ever read it, so districts priced identically in every economy.
+        var macro = GetTree()?.Root?.FindChild("MacroEconomyEngine", true, false) as MacroEconomyEngine;
+        float marketMultiplier = Mathf.Max(0.1f, macro?.PropertyValueMultiplier ?? 1f);
+
         foreach (var prop in _properties.Values)
         {
             // Gentrification: grows naturally, boosted by player ownership
@@ -98,7 +105,8 @@ public partial class RealEstateMarket : Node
             // Property value = base × gentrification bonus × crime penalty
             float gentrificationMultiplier = 0.5f + (prop.GentrificationScore / 100f) * 1.5f;
             float crimeMultiplier = 1f - (prop.CrimeRate * CrimeDepreciationRate * 100f);
-            prop.CurrentValue = prop.BaseValue * gentrificationMultiplier * Mathf.Max(0.3f, crimeMultiplier);
+            prop.CurrentValue = prop.BaseValue * gentrificationMultiplier
+                              * Mathf.Max(0.3f, crimeMultiplier) * marketMultiplier;
 
             // Rent = 2% of current value monthly
             prop.MonthlyRent = prop.CurrentValue * 0.02;

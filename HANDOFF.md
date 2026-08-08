@@ -35,7 +35,7 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 # The game, windowed
 ./Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x900 main.tscn
 
-# Smoke test — 181 checks, the main safety net
+# Smoke test — 184 checks, the main safety net
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . smoke_test.tscn
 
 # Balance harness — 20 simulated nights + a six-point verdict
@@ -103,6 +103,20 @@ Found and fixed this session:
 - `PolicyTreeManager.EnactPolicy` — no callers, hiding *two* fatal bugs.
 - `RealEstateMarket.RegisterDistrict` — no callers; market permanently empty.
 - `ResearchTreeUI` — never instantiated, effects empty. Deleted.
+- `UnionizationManager`'s three strike resolutions — no callers, so a strike
+  could fire at the player with no way to answer it.
+- `MacroEconomyEngine.OnPhaseChanged` / `OnPhaseWarning` — no listeners, so
+  the largest single force on revenue was invisible.
+- `BribeCostMultiplier`, `PropertyValueMultiplier` — computed every day,
+  read by nobody. Both now wired.
+- `CrisisNarrativeDirector` — never instantiated, and would have deadlocked
+  on its first crisis if it had been.
+
+A closed island of 2,694 lines was deleted outright: `ClientQueueManager`,
+`EventDialogUI`, `TutorialManager`, `TutorialSequenceManager`,
+`OnboardingTestSuite`, `SimulationTestRunner`, `SpatialHeatmapLogger`,
+`EngineMetricsOverlay`, `TaskPoolDispatcher`. They referenced each other and
+nothing else referenced them.
 
 **Before trusting any system here, grep for callers of its main entry
 point.** If there are none, assume it has never run and budget for bugs.
@@ -300,44 +314,43 @@ characters.
 
 ## What's left, in the order I'd do it
 
-1. **Crises never fire in a normal game.** The director is live, the screen
-   works, the four scenarios are written — and a 50-night naive run faces
-   **zero** of them. The triggers are set at catastrophe level: heat above
-   85 (it peaks around 70), sentiment below 15, an active strike, or the
-   house more than $500 in debt. The design calls for the Ledger to end with
-   one to three decisions as the pacing heartbeat; at these thresholds it
-   ends with none. Lowering them is a design call about how often the game
-   should interrupt, so the numbers are untouched.
+The first two are **design calls, not bugs.** They are the largest open
+questions in the game and neither has a right answer I can derive from the
+code, so the numbers are untouched.
+
+1. **Crises never fire.** The director is live, the screen works, four
+   scenarios are written — and a 50-night naive run faces **zero** of them.
+   The triggers sit at catastrophe level: heat above 85 (it peaks around
+   70), sentiment below 15, an active strike, or the house $500 in debt. The
+   design calls for the Ledger to end with one to three decisions as the
+   pacing heartbeat; at these thresholds it beats zero times. How often
+   should the game interrupt the player?
 
 2. **Reputation has no recovery term.** Arrivals scale with it, so a shock
    that lowers reputation lowers the number of chances to earn it back. Over
-   50 nights it falls 83 → 25 and never returns. Death spiral or intended
-   ratchet is a design call, but it is the largest unaddressed force in the
-   long game.
+   50 nights it falls 83 → 25 and never returns. Death spiral, or the
+   ratchet working as intended?
 
-3. **`PropertyValueMultiplier` has no consumers.** `RealEstateMarket` is the
-   obvious one; the macro phase is supposed to move district prices and does
-   not. (`BribeCostMultiplier` had the same problem and is now wired.)
+3. **Balance constants predate the working harness.** Anything justified by
+   a harness run before `WorldRandom` was measured against ±55% noise.
+   Re-derive rather than trust — including numbers whose commit messages
+   sound confident.
 
-4. **`ClientQueueManager` has no callers at all.** ~300 lines including a
-   fight system with its own reputation penalty, none of it reachable.
-   `NightDirector` does the queueing. Delete it or wire the fights.
+4. **Asset decimation.** Thirteen files drew GitHub's "larger than the
+   recommended 50 MB" warning, and four beds are excluded from the repo
+   entirely for breaking the 100 MiB hard limit. A 70 MB rug and a 91 MB rig
+   archive are Meshy defaults, not game assets. This has to happen before
+   release regardless of where the files are stored.
 
-5. **`EventDialogUI` is a second, unreachable crisis dialog** with its own
-   parallel payload types (`AiEventPayload`), hardcoded colours instead of
-   `IsoTheme`, and the bad `SetAnchorsPreset`. `CrisisScreen` supersedes it.
-   Only `TutorialManager` and `TutorialSequenceManager` reference it, and
-   they are themselves only referenced by `OnboardingTestSuite`. All four
-   are candidates for deletion.
+5. **`RollReturningClient` iterates a `Dictionary<string, Patron>`** keyed by
+   Guid. Iteration order is stable within a process but is not part of the
+   seed, so it is the one part of a "deterministic" run that could still
+   drift if the dictionary were ever rebuilt in a different order. Not
+   currently observed; an ordered list would settle it.
 
 6. **The three `HudTool` chips** (Cleaning, Alert, Info) emit
    `OnToolRequested` and nothing consumes it. The Alert chip is written to,
    but pressing any of the three does nothing.
-
-7. **`RollReturningClient` iterates a `Dictionary<string, Patron>`** keyed by
-   Guid. Iteration order is stable within a process but is not part of the
-   seed, so it is the one part of a "deterministic" run that could still
-   drift if the dictionary were ever rebuilt in a different order.
 
 ---
 

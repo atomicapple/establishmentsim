@@ -909,6 +909,30 @@ public partial class SmokeTest : Node
         Check("a boom is not adverse", !macro.IsAdverse);
         Check("a boom brings more people in", macro.FootfallMultiplier > 1f);
 
+        // ── Property follows the city ──────────────────────────────────
+        // PropertyValueMultiplier had no consumers, so districts were priced
+        // identically in a boom and a recession.
+        var market = GetTree()?.Root?.FindChild("RealEstateMarket", true, false) as RealEstateMarket;
+        Check("districts are registered", (market?.Properties.Count ?? 0) > 0);
+
+        if (market != null && market.Properties.Count > 0)
+        {
+            var district = market.Properties.Keys.First();
+
+            gsm.AdvanceDay();
+            var boomValue = market.Properties[district].CurrentValue;
+
+            macro.ForcePhase(MacroPhase.Recession);
+            gsm.AdvanceDay();
+            var slumpValue = market.Properties[district].CurrentValue;
+
+            Check($"property is worth less in a slump (${boomValue:N0} → ${slumpValue:N0})",
+                slumpValue < boomValue);
+
+            Check("rent follows the value down",
+                market.Properties[district].MonthlyRent < boomValue * 0.02);
+        }
+
         macro.ForcePhase(MacroPhase.Stagnation);
 
         GD.Print($"  {macro.GetShortCaption()} — bribe bought {boughtQuiet:F1} " +
