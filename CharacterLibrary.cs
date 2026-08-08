@@ -52,8 +52,30 @@ public partial class CharacterLibrary : Node
             DisplayName = "Blonde",
             ScenePath = "res://Assets/Characters/Blonde1/Meshy_AI_Meshy_Merged_Animations.glb",
             Scale = 1f
+        },
+
+        // Clients. Kept in a separate list below so staff are never dressed
+        // as patrons and vice versa.
+    };
+
+    /// <summary>
+    /// Models used for visiting clients. Separate from <see cref="Models"/>
+    /// so the house's staff and its patrons never share a face.
+    /// </summary>
+    public static readonly List<CharacterModel> ClientModels = new()
+    {
+        new CharacterModel
+        {
+            Id = "gentleman",
+            DisplayName = "Gentleman",
+            ScenePath = "res://Assets/Characters/wealthy_gentleman.glb",
+            AnimationPath = "res://Assets/Characters/wealthy_gentleman_anims.glb",
+            Scale = 1f
         }
     };
+
+    /// <summary>Every model, staff and client alike.</summary>
+    private static IEnumerable<CharacterModel> AllModels => Models.Concat(ClientModels);
 
     // ── Animation name matching ────────────────────────────────────────
 
@@ -64,11 +86,17 @@ public partial class CharacterLibrary : Node
     /// </summary>
     private static readonly Dictionary<CharacterAnimation, string[]> AnimationHints = new()
     {
-        [CharacterAnimation.Idle] = new[] { "idle", "stand", "breath" },
-        [CharacterAnimation.Walk] = new[] { "walk", "stroll" },
-        [CharacterAnimation.Talk] = new[] { "talk", "gesture", "agree", "wave" },
-        [CharacterAnimation.Sit] = new[] { "sit", "chair" },
-        [CharacterAnimation.Dance] = new[] { "dance", "groove", "hop" }
+        [CharacterAnimation.Idle] = new[]
+            { "idle", "stand", "breath", "rest", "relax", "neutral" },
+
+        [CharacterAnimation.Walk] = new[] { "walk", "stroll", "strut" },
+
+        [CharacterAnimation.Talk] = new[]
+            { "talk", "speak", "gesture", "agree", "wave", "greet", "converse" },
+
+        [CharacterAnimation.Sit] = new[] { "sit", "chair", "seated" },
+
+        [CharacterAnimation.Dance] = new[] { "dance", "groove", "hop", "sway" }
     };
 
     private readonly Dictionary<string, Node3D> _cache = new();
@@ -101,7 +129,7 @@ public partial class CharacterLibrary : Node
     /// </summary>
     public Node3D Instantiate(string modelId)
     {
-        var model = Models.FirstOrDefault(m => m.Id == modelId) ?? Models.FirstOrDefault();
+        var model = AllModels.FirstOrDefault(m => m.Id == modelId) ?? Models.FirstOrDefault();
         if (model == null) return null;
 
         if (!_cache.TryGetValue(model.Id, out var prototype))
@@ -111,6 +139,17 @@ public partial class CharacterLibrary : Node
 
             if (!string.IsNullOrEmpty(model.AnimationPath))
                 MergeAnimations(prototype, model.AnimationPath);
+
+            // Fold in every other .glb sitting beside the model. Meshy exports
+            // one clip per file, so an idle or a gesture arrives as its own
+            // download — dropping it in the character's folder should be the
+            // whole integration step, exactly as it is for furniture.
+            MergeSiblingAnimations(prototype, model.ScenePath, model.AnimationPath);
+
+            var player = FindAnimationPlayer(prototype);
+            GD.Print($"[Characters] {model.DisplayName}: " +
+                     $"{player?.GetAnimationList().Length ?? 0} clips " +
+                     $"({string.Join(", ", player?.GetAnimationList() ?? Array.Empty<string>())})");
 
             _cache[model.Id] = prototype;
         }
@@ -122,16 +161,21 @@ public partial class CharacterLibrary : Node
         return instance;
     }
 
-    /// <summary>Pick a model deterministically from a stable id, so a given staff member always looks the same.</summary>
-    public string PickModelFor(string stableId)
+    /// <summary>
+    /// Pick a model deterministically from a stable id, so a given person
+    /// always looks the same across sessions and rebuilds.
+    /// </summary>
+    /// <param name="forClient">Draw from the client pool rather than staff.</param>
+    public string PickModelFor(string stableId, bool forClient = false)
     {
-        if (Models.Count == 0) return null;
-        if (string.IsNullOrEmpty(stableId)) return Models[0].Id;
+        var pool = forClient ? ClientModels : Models;
+        if (pool.Count == 0) return null;
+        if (string.IsNullOrEmpty(stableId)) return pool[0].Id;
 
         var hash = 0;
         foreach (var c in stableId) hash = (hash * 31 + c) & 0x7FFFFFFF;
 
-        return Models[hash % Models.Count].Id;
+        return pool[hash % pool.Count].Id;
     }
 
     /// <summary>
@@ -175,7 +219,59 @@ public partial class CharacterLibrary : Node
         }
     }
 
-    /// <summary>Copy clips from a separate animation .glb onto a loaded rig.</summary>
+    /// <summary>
+    /// Merge every other .glb in the model's own folder into it, treating
+    /// each as a bundle of animation clips.
+    ///
+    /// Meshy exports one animation per file, so an idle or a talk gesture
+    /// arrives as a separate download rather than being folded into the rig.
+    /// Scanning the folder means adding one is a file copy, with no code and
+    /// no registry entry.
+    /// </summary>
+    private static void MergeSiblingAnimations(
+        Node3D target, string modelPath, string alreadyMergedPath)
+    {
+        var folder = modelPath.GetBaseDir();
+
+        // Only scan a character's own subfolder. A model sitting directly in
+        // Assets/Characters/ shares that folder with every other character,
+        // and merging there pulled unrelated rigs' clips onto it.
+        if (folder.TrimSuffix("/").GetFile()
+            .Equals("Characters", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        using var dir = DirAccess.Open(folder);
+        if (dir == null) return;
+
+        dir.ListDirBegin();
+
+        string name;
+        while ((name = dir.GetNext()) != "")
+        {
+            if (dir.CurrentIsDir() || name.StartsWith(".")) continue;
+            if (!name.EndsWith(".glb", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var full = folder.TrimSuffix("/") + "/" + name;
+
+            // Skip the mesh itself and any file already merged explicitly,
+            // or every clip arrives twice with a _2 suffix.
+            if (full == modelPath || full == alreadyMergedPath) continue;
+
+            MergeAnimations(target, full);
+        }
+
+        dir.ListDirEnd();
+    }
+
+    /// <summary>
+    /// Copy clips from an animation .glb onto a loaded rig.
+    ///
+    /// Clips are merged individually rather than by whole library. Every
+    /// Meshy export names its library "" (the default), so adding libraries
+    /// wholesale silently dropped the second and every later file — the name
+    /// was already taken. Names that collide are suffixed rather than
+    /// overwriting, since two files may both call their clip "Armature|mixamo".
+    /// </summary>
     private static void MergeAnimations(Node3D target, string animationPath)
     {
         var source = LoadGltf(animationPath);
@@ -196,16 +292,66 @@ public partial class CharacterLibrary : Node
             targetPlayer.Owner = target;
         }
 
-        foreach (var libraryName in sourcePlayer.GetAnimationLibraryList())
+        var destination = GetOrCreateDefaultLibrary(targetPlayer);
+        if (destination == null)
         {
-            var library = sourcePlayer.GetAnimationLibrary(libraryName);
-            if (library == null) continue;
+            source.QueueFree();
+            return;
+        }
 
-            if (!targetPlayer.HasAnimationLibrary(libraryName))
-                targetPlayer.AddAnimationLibrary(libraryName, library);
+        // A clip whose own name is uninformative — Meshy often emits
+        // "Armature|Take 001" — is renamed after its file, so the substring
+        // matcher in ResolveAnimation has something to work with.
+        var fileHint = animationPath.GetFile().GetBaseName();
+
+        foreach (var clipName in sourcePlayer.GetAnimationList())
+        {
+            var clip = sourcePlayer.GetAnimation(clipName);
+            if (clip == null) continue;
+
+            var targetName = ChooseClipName(clipName, fileHint);
+            var unique = targetName;
+            var suffix = 2;
+
+            while (destination.HasAnimation(unique))
+                unique = $"{targetName}_{suffix++}";
+
+            destination.AddAnimation(unique, (Animation)clip.Duplicate());
         }
 
         source.QueueFree();
+    }
+
+    /// <summary>
+    /// The library new clips are added to, creating the default one if the
+    /// rig arrived without any.
+    /// </summary>
+    private static AnimationLibrary GetOrCreateDefaultLibrary(AnimationPlayer player)
+    {
+        if (player.HasAnimationLibrary(""))
+            return player.GetAnimationLibrary("");
+
+        var library = new AnimationLibrary();
+        return player.AddAnimationLibrary("", library) == Error.Ok ? library : null;
+    }
+
+    /// <summary>
+    /// Prefer the clip's own name, unless it is a generic exporter artefact,
+    /// in which case fall back to the filename — which is where the useful
+    /// word ("idle", "talk") actually lives.
+    /// </summary>
+    private static string ChooseClipName(string clipName, string fileHint)
+    {
+        if (string.IsNullOrWhiteSpace(clipName)) return fileHint;
+
+        var lower = clipName.ToLowerInvariant();
+
+        var generic = lower.Contains("take 001") ||
+                      lower.Contains("mixamo.com") ||
+                      lower == "animation" ||
+                      lower == "armature";
+
+        return generic ? fileHint : clipName;
     }
 
     // ── Animation lookup ───────────────────────────────────────────────
@@ -238,11 +384,20 @@ public partial class CharacterLibrary : Node
 
         if (AnimationHints.TryGetValue(wanted, out var hints))
         {
-            foreach (var hint in hints)
+            string best = null;
+            var bestScore = 0;
+
+            foreach (var name in available)
             {
-                foreach (var name in available)
-                    if (name.Contains(hint, StringComparison.OrdinalIgnoreCase)) return name;
+                var score = ScoreMatch(name, hints, wanted);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = name;
+                }
             }
+
+            if (best != null) return best;
         }
 
         // Deliberately null rather than "play whatever exists". The current
@@ -250,6 +405,44 @@ public partial class CharacterLibrary : Node
         // made every idle staff member sprint on the spot. Callers handle
         // null by freezing a locomotion clip into a standing pose instead.
         return null;
+    }
+
+    /// <summary>
+    /// How well a clip name matches a wanted state. Higher wins.
+    ///
+    /// A plain substring test is not enough: a rig carrying both "Idle_7" and
+    /// "Chair_Sit_Idle_M" would answer Idle with the seated one purely on
+    /// list order, and staff would sit down in mid-air. Names that *start*
+    /// with the hint beat names that merely contain it, and a clip carrying
+    /// another state's keyword is penalised so it is only used as a last resort.
+    /// </summary>
+    private static int ScoreMatch(string clipName, string[] hints, CharacterAnimation wanted)
+    {
+        var lower = clipName.ToLowerInvariant();
+        var score = 0;
+
+        for (var i = 0; i < hints.Length; i++)
+        {
+            var hint = hints[i];
+            if (!lower.Contains(hint)) continue;
+
+            // Earlier hints are stronger; a prefix match is stronger still.
+            var weight = (hints.Length - i) * 10;
+            score = Mathf.Max(score, lower.StartsWith(hint) ? weight + 25 : weight);
+        }
+
+        if (score == 0) return 0;
+
+        // Penalise clips that also advertise a different state.
+        foreach (var (state, otherHints) in AnimationHints)
+        {
+            if (state == wanted) continue;
+
+            foreach (var other in otherHints)
+                if (lower.Contains(other)) score -= 12;
+        }
+
+        return Mathf.Max(1, score);
     }
 
     /// <summary>

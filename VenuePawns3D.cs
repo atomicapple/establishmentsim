@@ -131,13 +131,12 @@ public partial class VenuePawns3D : Node3D
     /// </summary>
     private AnimationPlayer BuildBody(string id, bool isStaff, Node3D root)
     {
-        // Clients keep the placeholder look for now — only the two rigged
-        // women exist, and dressing every client as one of them would read
-        // worse than an obvious stand-in.
-        if (isStaff && CharacterLibrary.Instance != null)
+        if (CharacterLibrary.Instance != null)
         {
-            var modelId = CharacterLibrary.Instance.PickModelFor(id);
-            var model = CharacterLibrary.Instance.Instantiate(modelId);
+            // Staff and clients draw from separate pools, so the house's own
+            // people are never dressed as patrons.
+            var modelId = CharacterLibrary.Instance.PickModelFor(id, forClient: !isStaff);
+            var model = modelId == null ? null : CharacterLibrary.Instance.Instantiate(modelId);
 
             if (model != null)
             {

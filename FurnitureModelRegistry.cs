@@ -208,23 +208,55 @@ public static class FurnitureModelRegistry
             // .glb is what GltfDocument wants.
             if (!name.EndsWith(".glb", StringComparison.OrdinalIgnoreCase)) continue;
 
-            var folder = path.TrimSuffix("/").GetFile();
+            // Walk up until a folder name is recognised, rather than trusting
+            // the immediate parent. Exporters routinely nest output — Meshy
+            // writes Beds/GLB/model.glb — and matching only the nearest
+            // folder silently dropped every model behind such a subfolder.
+            var category = ResolveCategoryFromPath(path, out var examined);
 
-            if (!FolderAliases.TryGetValue(folder, out var category))
+            if (category == null)
             {
-                unknownFolders.Add(folder);
+                unknownFolders.Add(examined);
                 continue;
             }
 
             found.Add(new ModelEntry
             {
                 Path = full,
-                Category = category,
+                Category = category.Value,
                 Style = InferStyle(name)
             });
         }
 
         dir.ListDirEnd();
+    }
+
+    /// <summary>
+    /// Find the category by walking up from a model's folder toward the
+    /// furniture root, taking the first recognised folder name.
+    /// </summary>
+    /// <param name="examined">
+    /// The nearest folder tried, for reporting when nothing matches.
+    /// </param>
+    private static FurnitureCategory? ResolveCategoryFromPath(string path, out string examined)
+    {
+        var root = RootDirectory.TrimSuffix("/");
+        var current = path.TrimSuffix("/");
+
+        examined = current.GetFile();
+
+        // Bounded by the root so a stray folder cannot walk out of Assets.
+        for (var depth = 0; depth < 8; depth++)
+        {
+            if (string.IsNullOrEmpty(current) || current.Length <= root.Length) break;
+
+            var folder = current.GetFile();
+            if (FolderAliases.TryGetValue(folder, out var category)) return category;
+
+            current = current.GetBaseDir();
+        }
+
+        return null;
     }
 
     /// <summary>

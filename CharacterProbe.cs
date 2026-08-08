@@ -23,7 +23,7 @@ public partial class CharacterProbe : Node
 
         var failures = 0;
 
-        foreach (var model in CharacterLibrary.Models)
+        foreach (var model in CharacterLibrary.Models.Concat(CharacterLibrary.ClientModels))
         {
             GD.Print($"\n── {model.DisplayName} ({model.Id})");
             GD.Print($"   {model.ScenePath}");
