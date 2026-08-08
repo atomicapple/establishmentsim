@@ -24,6 +24,17 @@ public partial class GameBootstrap : Node
     [Export] public bool SeedNewGame { get; set; } = true;
 
     /// <summary>
+    /// Seed the whole five-room house instead of just the entrance.
+    ///
+    /// A new campaign starts with the entrance only and the player builds the
+    /// rest — that is the game. The harness and the smoke test are measuring
+    /// the economy and the wiring, not the opening, and neither of them ever
+    /// builds a room, so they would run a house with nothing to sell. They
+    /// ask for the established house explicitly.
+    /// </summary>
+    [Export] public bool SeedEstablishedHouse { get; set; }
+
+    /// <summary>
     /// Let GameStateManager's legacy 60-second timer keep running. Off by
     /// default: NightDirector advances the day when the Ledger is closed, so
     /// a wall-clock timer would double-tick the world.
@@ -147,6 +158,12 @@ public partial class GameBootstrap : Node
     {
         if (Venue == null) return;
 
+        if (!SeedEstablishedHouse)
+        {
+            SeedEntrance();
+            return;
+        }
+
         // The founding house is inherited, not bought. BuildRoom charges the
         // blueprint cost and would reject most of this against the $1,000
         // opening balance — that money is working capital for the first few
@@ -181,6 +198,35 @@ public partial class GameBootstrap : Node
         FurnishPublicRoom(bar, FurnitureStyle.ArtDeco, tier: 2);
 
         Venue.RecalculateSynergies();
+    }
+
+    /// <summary>
+    /// A new campaign: the front door and nothing else.
+    ///
+    /// The house is a lease on a ground floor with a reception and a bar
+    /// already in it. Everything that earns money — every suite, every
+    /// upstairs floor — the player builds. That is the difference between
+    /// inheriting a business and starting one, and it is what makes the
+    /// opening decisions matter: the first suite is a real choice about where
+    /// the money goes, not a room that was already there.
+    ///
+    /// The reception is what a client meets first. It sets screening and the
+    /// upsell multiplier for everything that happens upstairs, so it is
+    /// furnished rather than bare — the player is not asked to fix the front
+    /// of house before they can trade at all.
+    /// </summary>
+    private void SeedEntrance()
+    {
+        var reception = GrantRoom(RoomType.Lounge, new Vector3I(0, 0, 0), "The Reception");
+        var bar = GrantRoom(RoomType.Bar, new Vector3I(3, 0, 0), "The Long Bar");
+
+        FurnishPublicRoom(reception, FurnitureStyle.Baroque, tier: 1);
+        FurnishPublicRoom(bar, FurnitureStyle.Baroque, tier: 1);
+
+        Venue.RecalculateSynergies();
+
+        GD.Print("[Bootstrap] New house: reception and bar. " +
+                 "Everything upstairs is the player's to build.");
     }
 
     /// <summary>Seating, light and decor for a client-facing ground-floor room.</summary>

@@ -79,7 +79,12 @@ public partial class BalanceHarness : Node
         {
             Name = "GameBootstrap",
             WorldSeed = Seed,
-            UseLegacyDayTimer = false
+            UseLegacyDayTimer = false,
+
+            // The harness never builds a room, so it measures the economy of
+            // a house that already exists. A new campaign starts with the
+            // entrance only and would have nothing to sell.
+            SeedEstablishedHouse = true
         };
 
         AddChild(_boot);
@@ -211,7 +216,7 @@ public partial class BalanceHarness : Node
 
         var totalRevenue = _samples.Sum(s => s.Revenue);
         var totalCosts = _samples.Sum(s => s.Upkeep + s.Salaries + s.Commission);
-        var startCash = 1000.0;
+        var startCash = GameStateManager.StartingCash;
         var endCash = _samples.Count > 0 ? _samples[^1].CashAfter : startCash;
 
         GD.Print("\n─── Totals ───");

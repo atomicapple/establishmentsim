@@ -4,6 +4,5 @@
 
 [node name="GameScene" type="Node"]
 script = ExtResource("1_gamescene")
-ScreenshotAfterSeconds = 5.0
-CaptureLicencesPanel = true
-SeedEstablishedHouse = true
+ScreenshotAfterSeconds = 4.0
+AutoBeginFirstNight = false

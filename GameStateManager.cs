@@ -41,14 +41,21 @@ public partial class GameStateManager : Node
     public delegate void OnPublicSentimentChangedEventHandler(float newValue, float delta);
 
     // ── Persistent Metrics (backing fields) ────────────────────────────
-    private double _cash = 1000.0;
+    // Opening balance. Raised from 1000 when the campaign changed to start
+    // with the entrance only: the player now has to build and furnish their
+    // first suite before anything can be sold, and 1000 did not cover a room
+    // plus a bed. See StartingCash.
+    private double _cash = StartingCash;
     private float _reputation = 50.0f;
     private float _heat;
     private float _publicSentiment = 50.0f;
 
     // ── Public Properties with change notification ─────────────────────
 
-    /// <summary>Available cash in dollars. Starting value: $1000.</summary>
+    /// <summary>What a new campaign opens with.</summary>
+    public const double StartingCash = 3000.0;
+
+    /// <summary>Available cash in dollars.</summary>
     public double Cash
     {
         get => _cash;

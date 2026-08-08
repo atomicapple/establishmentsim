@@ -8,3 +8,4 @@ ScreenshotAfterSeconds = 4.0
 InitialFloor = 1
 CaptureCameraSize = 6.0
 AutoBeginFirstNight = false
+SeedEstablishedHouse = true

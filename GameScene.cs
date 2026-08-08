@@ -26,6 +26,16 @@ public partial class GameScene : Node
     [Export] public int InitialFloor { get; set; }
 
     /// <summary>
+    /// Open with the five-room house already built instead of just the
+    /// entrance.
+    ///
+    /// A new campaign starts with a reception and a bar and nothing else —
+    /// the player builds every suite. Capture scenes that need to photograph
+    /// furnished rooms set this; `main.tscn` does not.
+    /// </summary>
+    [Export] public bool SeedEstablishedHouse { get; set; }
+
+    /// <summary>
     /// Capture runs only: open the decorate panel on a suite instead of
     /// opening the doors, so the shot shows the furniture shop.
     /// </summary>
@@ -142,7 +152,8 @@ public partial class GameScene : Node
         _boot = new GameBootstrap
         {
             Name = "GameBootstrap",
-            UseLegacyDayTimer = false
+            UseLegacyDayTimer = false,
+            SeedEstablishedHouse = SeedEstablishedHouse
         };
 
         AddChild(_boot);

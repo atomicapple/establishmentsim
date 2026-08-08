@@ -6,3 +6,4 @@
 script = ExtResource("1_gamescene")
 ScreenshotAfterSeconds = 14.0
 CapturePatronsAfterNights = 12
+SeedEstablishedHouse = true

@@ -6,3 +6,4 @@
 script = ExtResource("1_gamescene")
 ScreenshotAfterSeconds = 5.0
 CaptureCrackdown = true
+SeedEstablishedHouse = true

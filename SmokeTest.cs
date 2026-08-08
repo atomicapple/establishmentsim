@@ -46,7 +46,11 @@ public partial class SmokeTest : Node
         {
             Name = "GameBootstrap",
             WorldSeed = 20260807,          // deterministic run
-            UseLegacyDayTimer = false
+            UseLegacyDayTimer = false,
+
+            // Exercises the night loop, which needs rooms to sell. The
+            // entrance-only opening is the campaign's, not the test's.
+            SeedEstablishedHouse = true
         };
 
         AddChild(_boot);
@@ -166,6 +170,7 @@ public partial class SmokeTest : Node
             RunUnionCheck();
             RunCityCheck();
             RunCrisisCheck();
+            RunOpeningCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -1121,6 +1126,60 @@ public partial class SmokeTest : Node
     /// </summary>
     private static bool HasListener(Node emitter, string signalName) =>
         emitter != null && emitter.GetSignalConnectionList(signalName).Count > 0;
+
+    /// <summary>
+    /// Can a new campaign actually afford to start?
+    ///
+    /// The opening changed from an inherited five-room house to a leased
+    /// entrance, so the player now has to build *and* furnish their first
+    /// suite before anything can be sold. If the opening balance does not
+    /// cover that, the first night has nothing to offer and the campaign is
+    /// unwinnable from move one — a failure no other test would catch,
+    /// because every other test seeds the established house.
+    /// </summary>
+    private void RunOpeningCheck()
+    {
+        GD.Print("\n── The opening ──");
+
+        var venue = _boot.Venue;
+        var catalog = _boot.Catalog;
+        if (venue == null || catalog == null) return;
+
+        var suiteCost = VenueBuilding.GetRoomCost(RoomType.PrivateSuite).Cash;
+        Check("a private suite has a price", suiteCost > 0);
+
+        // Cheapest piece the shop will sell for each category the room type
+        // requires — the minimum spend that makes a suite bookable at all.
+        var room = venue.GetRoom(new Vector3I(0, 0, 1));
+        var required = RoomAppointmentCalculator.GetRequiredCategories(RoomType.PrivateSuite);
+        double furnishing = 0;
+
+        foreach (var category in required)
+        {
+            var cheapest = catalog.GetOffers(room)
+                .Where(o => o.Item.Category == category)
+                .OrderBy(o => o.Price)
+                .FirstOrDefault();
+
+            Check($"the shop stocks something in {category}", cheapest != null);
+            if (cheapest != null) furnishing += cheapest.Price;
+        }
+
+        var total = suiteCost + furnishing;
+
+        GD.Print($"  first suite: ${suiteCost:N0} to build, ${furnishing:N0} to furnish " +
+                 $"({string.Join(" + ", required)}) = ${total:N0}");
+        GD.Print($"  opening balance ${GameStateManager.StartingCash:N0}");
+
+        Check($"a new campaign can afford its first earning room " +
+              $"(${total:N0} of ${GameStateManager.StartingCash:N0})",
+            total <= GameStateManager.StartingCash);
+
+        // And not so easily that the choice is meaningless — the first suite
+        // should cost most of the opening balance, not a fraction of it.
+        Check("and is not left with a trivial decision",
+            total >= GameStateManager.StartingCash * 0.35);
+    }
 
     // ── Persistence round-trip ─────────────────────────────────────────
 

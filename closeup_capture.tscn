@@ -7,3 +7,4 @@ script = ExtResource("1_gamescene")
 ScreenshotAfterSeconds = 5.0
 InitialFloor = 1
 CaptureCameraSize = 11.0
+SeedEstablishedHouse = true

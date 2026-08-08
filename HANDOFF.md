@@ -35,7 +35,7 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 # The game, windowed
 ./Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x900 main.tscn
 
-# Smoke test — 200 checks, the main safety net
+# Smoke test — 206 checks, the main safety net
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . smoke_test.tscn
 
 # Balance harness — 20 simulated nights + a nine-point verdict
@@ -54,6 +54,13 @@ twenty nights. Twenty nights yields exactly one, so unrelated changes flipped
 it to zero and reported a crisis failure for an economic experiment. Its
 lower bound now applies only to runs of forty nights or more.
 
+**`SeedEstablishedHouse` matters.** A new campaign opens with a reception, a
+bar, and nothing else — the player builds every suite. The smoke test and all
+three balance scenes set `SeedEstablishedHouse = true`, because neither ever
+builds a room and both would otherwise measure a house with nothing to sell.
+Capture scenes that photograph furnished rooms set it too; `main.tscn` does
+not. If a test suddenly reports no revenue, check that flag first.
+
 **Always run both before committing.** The smoke test catches wiring; the
 balance harness catches economic regressions the smoke test cannot see.
 
@@ -64,6 +71,7 @@ balance harness catches economic regressions the smoke test cannot see.
 | `character_probe.tscn` | Do the character `.glb` files load? What clips? |
 | `room_probe.tscn` | What meshes does a furnished room actually build, and where? |
 | `suite_probe.tscn` | A tight camera on one furnished suite, doors shut. For judging placement and scale. |
+| `newgame_probe.tscn` | What a brand-new campaign opens with — the entrance and nothing else. |
 
 `room_probe` exists because three screenshots in a row *appeared* to show
 empty rooms and I nearly rewrote the furniture builders. The probe proved the
