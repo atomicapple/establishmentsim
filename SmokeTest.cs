@@ -449,6 +449,41 @@ public partial class SmokeTest : Node
         Check("a mined patron drops off the target list",
             regulars.GetIntelTargets().All(t => t.Id != patron.Id));
 
+        // A once-seen client must be eligible to come back, or nobody can
+        // ever reach a second visit. The original filter required Standing
+        // above FirstTime — which needs two visits — so the book could never
+        // promote anybody and stayed empty across a whole campaign. Recording
+        // visits by hand hid it; only driving the return roll catches it.
+        var fresh = ClientNegotiationHandler.GenerateRandomClient();
+        fresh.Name = "Ford Prefect";
+
+        var once = regulars.RecordVisit(null, fresh, 100, 80f, wantsToReturn: true);
+        Check("a once-seen client is in the book", once != null);
+        Check("they are still only a first-timer", once.Standing == PatronStanding.FirstTime);
+
+        var everReturned = false;
+        for (var attempt = 0; attempt < 200 && !everReturned; attempt++)
+            everReturned = regulars.RollReturningClient() != null;
+
+        Check("a once-seen client can be drawn back through the door", everReturned);
+
+        // Nobody visits twice in one evening. The roll runs per arrival, so
+        // without a per-night guard one patron racked up nineteen visits
+        // across thirteen nights.
+        var drawnTonight = new List<string>();
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            var drawn = regulars.RollReturningClient();
+            if (drawn != null) drawnTonight.Add(drawn.Id);
+        }
+
+        Check("nobody is drawn twice in one night",
+            drawnTonight.Count == drawnTonight.Distinct().Count());
+
+        regulars.AdvanceNight();
+        Check("a new night lets them return again",
+            Enumerable.Range(0, 200).Any(_ => regulars.RollReturningClient() != null));
+
         // Someone who stops enjoying the place stops coming.
         for (var i = 0; i < 8; i++) regulars.RecordVisit(patron.Id, client, 20, 5f, true);
         regulars.AdvanceNight();

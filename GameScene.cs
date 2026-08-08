@@ -50,6 +50,13 @@ public partial class GameScene : Node
     [Export] public bool CapturePolicyPanel { get; set; }
 
     /// <summary>
+    /// Capture runs only: play this many compressed nights, then open the
+    /// patrons book. Clients need repeat visits before they are worth
+    /// showing, so photographing the book on night one shows nothing.
+    /// </summary>
+    [Export] public int CapturePatronsAfterNights { get; set; }
+
+    /// <summary>
     /// Capture runs only: override the orthographic camera size, in metres of
     /// world height. Zero keeps the automatic fit. Small values zoom in for
     /// inspecting furniture and room detail.
@@ -69,6 +76,7 @@ public partial class GameScene : Node
     private StaffPanel _staff;
     private InfluencePanel _influence;
     private PolicyPanel _policy;
+    private PatronsPanel _patrons;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -150,6 +158,9 @@ public partial class GameScene : Node
         _policy = new PolicyPanel { Name = "PolicyPanel" };
         panelLayer.AddChild(MakeSidePanelHost("PolicyHost", PolicyPanel.PanelWidth, _policy));
 
+        _patrons = new PatronsPanel { Name = "PatronsPanel" };
+        panelLayer.AddChild(MakeSidePanelHost("PatronsHost", PatronsPanel.PanelWidth, _patrons));
+
         _screenshot = new ScreenshotCapture
         {
             Name = "ScreenshotCapture",
@@ -225,6 +236,8 @@ public partial class GameScene : Node
         _policy.OnCloseRequested += () => _policy.Visible = false;
         _policy.OnPolicyEnacted += OnPolicyEnacted;
 
+        _patrons.OnCloseRequested += () => _patrons.Visible = false;
+
         // The HUD's roster controls open the staff panel.
         _hud.OnStaffSelected += _ => ToggleStaffPanel(true);
     }
@@ -256,6 +269,8 @@ public partial class GameScene : Node
 
     private void TogglePolicyPanel(bool show) => ShowOnly(show ? _policy : null);
 
+    private void TogglePatronsPanel(bool show) => ShowOnly(show ? _patrons : null);
+
     /// <summary>
     /// A signed policy changes standing modifiers across the whole house, so
     /// refresh everything that reads them.
@@ -277,10 +292,12 @@ public partial class GameScene : Node
         _staff.Visible = panel == _staff;
         _influence.Visible = panel == _influence;
         _policy.Visible = panel == _policy;
+        _patrons.Visible = panel == _patrons;
 
         if (panel == _staff) _staff.Refresh();
         else if (panel == _influence) _influence.Refresh();
         else if (panel == _policy) _policy.Refresh();
+        else if (panel == _patrons) _patrons.Refresh();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -300,6 +317,10 @@ public partial class GameScene : Node
 
             case Key.P:
                 TogglePolicyPanel(!_policy.Visible);
+                break;
+
+            case Key.B:
+                TogglePatronsPanel(!_patrons.Visible);
                 break;
 
             case Key.Escape:
@@ -336,6 +357,7 @@ public partial class GameScene : Node
             _boot.Venue);
 
         _policy.Bind(_boot.Policies);
+        _patrons.Bind(_boot.Regulars);
 
         var night = _boot.Night;
         night.OnEncounterStarted += OnEncounterStarted;
@@ -408,6 +430,18 @@ public partial class GameScene : Node
         {
             ToggleStaffPanel(true);
             _staff.ShowTab((StaffPanelTab)Mathf.Clamp(CaptureStaffTab, 0, 1));
+            return;
+        }
+
+        if (CapturePatronsAfterNights > 0)
+        {
+            // Compress hard and let the night loop run itself, so the book
+            // has real repeat clients in it by the time the shutter opens.
+            _boot.Night.ServiceDurationSeconds = 0.6f;
+            _boot.Night.EncounterDurationSeconds = 0.05f;
+
+            _autoPlayNightsLeft = CapturePatronsAfterNights;
+            _boot.Night.OpenDoors();
             return;
         }
 
@@ -577,7 +611,42 @@ public partial class GameScene : Node
     {
         _clouds.ClearAll();
         ClearLobbyPawns();
+
+        // A capture run plays itself through to the state worth photographing
+        // instead of stopping at the first Ledger.
+        if (_autoPlayNightsLeft > 0)
+        {
+            _autoPlayNightsLeft--;
+
+            if (_autoPlayNightsLeft > 0)
+            {
+                CallDeferred(nameof(PlayAnotherNight));
+                return;
+            }
+
+            CallDeferred(nameof(OpenBookForCapture));
+            return;
+        }
+
         _ledger.Show(_boot.Night.CurrentReport);
+    }
+
+    /// <summary>Number of nights a capture run should still play unattended.</summary>
+    private int _autoPlayNightsLeft;
+
+    private void PlayAnotherNight()
+    {
+        _boot.Night.ConcludeNight();
+        _boot.Night.BeginNight();
+        _boot.AutoAssignStaff();
+        RefreshStaffPawns();
+        _boot.Night.OpenDoors();
+    }
+
+    private void OpenBookForCapture()
+    {
+        _boot.Night.ConcludeNight();
+        TogglePatronsPanel(true);
     }
 
     private void OnLedgerContinue()

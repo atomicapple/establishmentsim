@@ -125,6 +125,14 @@ public partial class RegularsRegistry : Node, ISaveableSystem
     private readonly Dictionary<string, Patron> _patrons = new();
     private readonly RandomNumberGenerator _rng = new();
 
+    /// <summary>
+    /// Who has already been through the door tonight. The return roll runs
+    /// once per arrival, so without this the same person could be drawn
+    /// several times in an evening — one patron reached nineteen visits in
+    /// thirteen nights, which is not a regular, it is a duplicate.
+    /// </summary>
+    private readonly HashSet<string> _seenTonight = new();
+
     public IReadOnlyCollection<Patron> All => _patrons.Values;
 
     public int RegularCount => _patrons.Values.Count(p => p.Standing == PatronStanding.Regular);
@@ -231,9 +239,16 @@ public partial class RegularsRegistry : Node, ISaveableSystem
     /// </summary>
     public Patron RollReturningClient()
     {
+        // Anyone in the book is a candidate, including someone seen only once.
+        //
+        // Filtering to Standing != FirstTime was a chicken-and-egg bug: a
+        // client needs two visits to stop being FirstTime, but they can only
+        // get a second visit by being picked here. Nobody could ever be
+        // promoted, so across a dozen nights the book stayed empty and the
+        // entire regulars → patrons → intel chain never started.
         var candidates = _patrons.Values
-            .Where(p => p.Standing != PatronStanding.FirstTime)
             .Where(p => p.Satisfaction > AbandonSatisfaction)
+            .Where(p => !_seenTonight.Contains(p.Id))
             .ToList();
 
         if (candidates.Count == 0) return null;
@@ -244,9 +259,19 @@ public partial class RegularsRegistry : Node, ISaveableSystem
             var satisfaction = Mathf.Clamp(patron.Satisfaction / 100f, 0f, 1f);
             var chance = BaseReturnChance + satisfaction * SatisfactionReturnBonus;
 
-            if (patron.Standing == PatronStanding.Patron) chance += 0.15f;
+            // Standing raises the odds, so the book concentrates over time
+            // rather than churning through one-off visitors.
+            chance += patron.Standing switch
+            {
+                PatronStanding.Patron => 0.15f,
+                PatronStanding.Regular => 0.08f,
+                _ => 0f
+            };
 
-            if (_rng.Randf() < chance) return patron;
+            if (_rng.Randf() >= chance) continue;
+
+            _seenTonight.Add(patron.Id);
+            return patron;
         }
 
         return null;
@@ -290,6 +315,9 @@ public partial class RegularsRegistry : Node, ISaveableSystem
     /// </summary>
     public void AdvanceNight()
     {
+        // A new night; everyone is welcome through the door again.
+        _seenTonight.Clear();
+
         var lost = new List<Patron>();
 
         foreach (var patron in _patrons.Values)
