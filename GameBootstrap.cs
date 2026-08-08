@@ -47,6 +47,7 @@ public partial class GameBootstrap : Node
     public MacroEconomyEngine Macro { get; private set; }
     public FurnitureCatalog Catalog { get; private set; }
     public CharacterLibrary Characters { get; private set; }
+    public RegularsRegistry Regulars { get; private set; }
 
     private readonly RandomNumberGenerator _rng = new();
 
@@ -80,6 +81,7 @@ public partial class GameBootstrap : Node
         Add<BlackmailNetwork>("BlackmailNetwork");
         Add<SyndicateRivalAI>("SyndicateRivalAI");
         Add<NarrativeArcTracker>("NarrativeArcTracker");
+        Regulars = Add<RegularsRegistry>("RegularsRegistry");
         Add<RealEstateMarket>("RealEstateMarket");
 
         Venue = Add<VenueBuilding>("VenueBuilding");

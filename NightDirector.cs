@@ -44,6 +44,9 @@ public class ActiveEncounter
     public ClientProfile Client { get; set; }
     public double AgreedPrice { get; set; }
 
+    /// <summary>Patron record when this is a return visit, else null.</summary>
+    public string PatronId { get; set; }
+
     /// <summary>Seconds of service time remaining before it resolves.</summary>
     public float TimeRemaining { get; set; }
 
@@ -67,6 +70,9 @@ public class NightReport
     public int ClientsTurnedAway { get; set; }
 
     public int NewRegulars { get; set; }
+
+    /// <summary>Clients tonight who had been here before.</summary>
+    public int ReturningClients { get; set; }
     public float ReputationDelta { get; set; }
     public float HeatDelta { get; set; }
 
@@ -169,6 +175,9 @@ public partial class NightDirector : Node, ISaveableSystem
     private readonly List<ShiftAssignment> _assignments = new();
     private readonly List<ActiveEncounter> _encounters = new();
     private readonly List<ClientProfile> _lobby = new();
+
+    /// <summary>Patron id for lobby clients who have been here before.</summary>
+    private readonly Dictionary<ClientProfile, string> _lobbyPatrons = new();
     private readonly RandomNumberGenerator _rng = new();
 
     private float _serviceElapsed;
@@ -323,7 +332,9 @@ public partial class NightDirector : Node, ISaveableSystem
             _report.ClientsTurnedAway++;
             EmitSignal(SignalName.OnClientTurnedAway, waiting.Name, "still waiting at closing");
         }
+
         _lobby.Clear();
+        _lobbyPatrons.Clear();
 
         SetPhase(NightPhase.Closing);
     }
@@ -350,6 +361,9 @@ public partial class NightDirector : Node, ISaveableSystem
             GD.Print($"[NightDirector] Maintenance refurbished {repaired} pieces.");
 
         ApplySocialAndShiftEffects();
+
+        // Age the client book so people who stop coming eventually drop off.
+        FindRegulars()?.AdvanceNight();
 
         SetPhase(NightPhase.Ledger);
         EmitSignal(SignalName.OnNightConcluded, _report.Night, _report.Revenue, _report.Net);
@@ -424,9 +438,24 @@ public partial class NightDirector : Node, ISaveableSystem
 
     private void AdmitClient()
     {
-        var client = ClientNegotiationHandler.GenerateRandomClient();
+        // A known client walking back in takes precedence over a stranger.
+        // This is what makes good service compound instead of evaporating at
+        // the end of each night.
+        var regulars = FindRegulars();
+        var returning = regulars?.RollReturningClient();
+
+        var client = returning != null
+            ? regulars.BuildProfile(returning)
+            : ClientNegotiationHandler.GenerateRandomClient();
+
         _arrivalsRemaining--;
         _report.ClientsArrived++;
+
+        if (returning != null)
+        {
+            _lobbyPatrons[client] = returning.Id;
+            _report.ReturningClients++;
+        }
 
         if (_lobby.Count >= MaxLobbySize)
         {
@@ -509,11 +538,15 @@ public partial class NightDirector : Node, ISaveableSystem
 
         var duration = EncounterDurationSeconds * (0.8f + _rng.Randf() * 0.4f);
 
+        _lobbyPatrons.TryGetValue(client, out var patronId);
+        _lobbyPatrons.Remove(client);
+
         _encounters.Add(new ActiveEncounter
         {
             StaffId = staff.Id,
             RoomTile = room.GridPosition,
             Client = client,
+            PatronId = patronId,
             AgreedPrice = price,
             TimeRemaining = duration,
             TotalDuration = duration
@@ -681,10 +714,17 @@ public partial class NightDirector : Node, ISaveableSystem
         if (outcome.IntelOpportunity && staff != null)
         {
             var blackmail = GetTree()?.Root?.FindChild("BlackmailNetwork", true, false) as BlackmailNetwork;
-            blackmail?.AttemptIntelGathering(staff, encounter.Client.Name);
+
+            if (blackmail?.AttemptIntelGathering(staff, encounter.Client.Name) == true &&
+                !string.IsNullOrEmpty(encounter.PatronId))
+            {
+                // Intel on a stranger is worth little; intel on a patron is
+                // the leverage the political layer actually runs on.
+                FindRegulars()?.MarkIntelGathered(encounter.PatronId);
+            }
         }
 
-        if (outcome.BecameRegular) _report.NewRegulars++;
+        RecordPatronVisit(encounter, outcome);
 
         // ── Report ─────────────────────────────────────────────────────
         _report.ClientsServed++;
@@ -738,6 +778,39 @@ public partial class NightDirector : Node, ISaveableSystem
 
     private VenueBuilding FindVenue() =>
         GetTree()?.Root?.FindChild("VenueBuilding", true, false) as VenueBuilding;
+
+    private RegularsRegistry FindRegulars() =>
+        GetTree()?.Root?.FindChild("RegularsRegistry", true, false) as RegularsRegistry;
+
+    /// <summary>
+    /// Write the encounter into the client's history, creating or promoting
+    /// their record. A stranger who did not enjoy themselves is forgotten;
+    /// anyone else becomes someone the house can build on.
+    /// </summary>
+    private void RecordPatronVisit(ActiveEncounter encounter, EncounterOutcome outcome)
+    {
+        var regulars = FindRegulars();
+        if (regulars == null)
+        {
+            if (outcome.BecameRegular) _report.NewRegulars++;
+            return;
+        }
+
+        // Reuse the encounter score as the client's read on the night.
+        var before = regulars.GetById(encounter.PatronId)?.Standing ?? PatronStanding.FirstTime;
+
+        var patron = regulars.RecordVisit(
+            encounter.PatronId, encounter.Client, outcome.Payment,
+            outcome.Score, outcome.BecameRegular || !string.IsNullOrEmpty(encounter.PatronId));
+
+        if (patron == null) return;
+
+        if (before == PatronStanding.FirstTime && patron.Standing != PatronStanding.FirstTime)
+            _report.NewRegulars++;
+
+        if (before != PatronStanding.Patron && patron.Standing == PatronStanding.Patron)
+            _report.Highlights.Add($"{patron.Name} has become a patron of the house.");
+    }
 
     /// <summary>
     /// Commission rate after policy. The exploitation branch suppresses the

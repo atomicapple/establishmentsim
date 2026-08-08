@@ -130,6 +130,7 @@ public partial class SmokeTest : Node
             RunCatalogCheck();
             RunExpansionCheck();
             RunPolicyCheck();
+            RunRegularsCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -371,6 +372,80 @@ public partial class SmokeTest : Node
 
         Check("enacting policies produced real modifiers",
             policies.GetModifierSummary() != "(no active modifiers)");
+    }
+
+    // ── Regulars and patrons ───────────────────────────────────────────
+
+    /// <summary>
+    /// Walk a client from stranger to Patron and confirm each consequence.
+    ///
+    /// This is the loop the whole design rests on: service quality produces
+    /// returning clients, returning clients spend more, and Patrons are the
+    /// only worthwhile targets for the intel that buys political favour. If
+    /// a satisfied client is forgotten at the end of the night, none of that
+    /// chain exists.
+    /// </summary>
+    private void RunRegularsCheck()
+    {
+        GD.Print("\n── Regulars and patrons ──");
+
+        var regulars = _boot.Regulars;
+        Check("regulars registry present", regulars != null);
+        if (regulars == null) return;
+
+        var client = ClientNegotiationHandler.GenerateRandomClient();
+        client.Name = "Arthur Dent";
+
+        // A stranger who leaves unhappy is not worth remembering.
+        var forgotten = regulars.RecordVisit(null, client, 120, 30f, wantsToReturn: false);
+        Check("an unhappy stranger is forgotten", forgotten == null);
+
+        // A stranger who enjoyed themselves becomes a record.
+        var patron = regulars.RecordVisit(null, client, 120, 82f, wantsToReturn: true);
+        Check("a satisfied stranger is remembered", patron != null);
+        if (patron == null) return;
+
+        Check("one visit is not yet a regular", patron.Standing == PatronStanding.FirstTime);
+
+        // Climb to Regular, then to Patron.
+        for (var visit = 2; visit <= RegularsRegistry.RegularVisitThreshold; visit++)
+            regulars.RecordVisit(patron.Id, client, 150, 85f, true);
+
+        Check($"{RegularsRegistry.RegularVisitThreshold} visits makes a regular",
+            patron.Standing == PatronStanding.Regular);
+        Check("the registry counts them as a regular", regulars.RegularCount >= 1);
+
+        for (var visit = patron.Visits + 1; visit <= RegularsRegistry.PatronVisitThreshold; visit++)
+            regulars.RecordVisit(patron.Id, client, 180, 88f, true);
+
+        Check($"{RegularsRegistry.PatronVisitThreshold} visits makes a patron",
+            patron.Standing == PatronStanding.Patron);
+
+        GD.Print($"  {patron}");
+        GD.Print($"  expectation has risen to {patron.ExpectedAppointment:F0}");
+
+        Check("their expectations rose with familiarity", patron.ExpectedAppointment > 45f);
+        Check("spend accumulated", patron.TotalSpend > 500);
+
+        // A patron arrives with a bigger purse than a stranger.
+        var profile = regulars.BuildProfile(patron);
+        Check("a returning patron brings a larger budget", profile.Budget > patron.Budget);
+        Check("their remembered taste carries over",
+            profile.PreferredStyle == patron.PreferredStyle);
+
+        // Patrons are the intel targets; strangers are not.
+        var targets = regulars.GetIntelTargets();
+        Check("patrons are offered as intel targets", targets.Any(t => t.Id == patron.Id));
+
+        regulars.MarkIntelGathered(patron.Id);
+        Check("a mined patron drops off the target list",
+            regulars.GetIntelTargets().All(t => t.Id != patron.Id));
+
+        // Someone who stops enjoying the place stops coming.
+        for (var i = 0; i < 8; i++) regulars.RecordVisit(patron.Id, client, 20, 5f, true);
+        regulars.AdvanceNight();
+
+        Check("a client who sours is written off", regulars.GetById(patron.Id) == null);
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────
