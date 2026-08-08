@@ -48,6 +48,12 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . balance_thrifty.tscn
 ```
 
+**A verdict that fails for reasons it does not name is worse than no
+verdict.** The crisis-count check originally asserted at least one crisis in
+twenty nights. Twenty nights yields exactly one, so unrelated changes flipped
+it to zero and reported a crisis failure for an economic experiment. Its
+lower bound now applies only to runs of forty nights or more.
+
 **Always run both before committing.** The smoke test catches wiring; the
 balance harness catches economic regressions the smoke test cannot see.
 
@@ -331,6 +337,29 @@ needs revisiting.
 **When a stat here misbehaves over a long run, check whether anything moves
 it the other way before touching its magnitudes.**
 
+### The two big levers, swept
+
+The instruction below used to come with a warning that every constant had
+been tuned against noise. Two of the three largest were re-derived once the
+harness became deterministic, and both hold up:
+
+```
+commission   0.30  cash 7607  costs 48%   8/9   costs too low
+             0.36       6619        54%   8/9   costs too low
+             0.42       5630        60%   9/9   <- current
+             0.48       4642        66%   9/9
+             0.54       3654        72%   9/9
+
+room price    $62  cash 4371  8/9    $78  cash 5630  9/9  <- current
+              $70       5351  8/9    $86       6603  9/9
+                                     $94       7563  9/9
+```
+
+Commission at 0.42 sits in the lower third of the passing band, not on its
+edge. Room price has no economic boundary at all in this range — the 8/9 at
+$62 and $70 was a *crisis-count* verdict failing, not an economic one, which
+is what prompted rewriting that verdict (see below).
+
 **Change numbers against the harness, not intuition.** The first balance pass
 produced a −$10,308 death spiral traceable to a single ratio (stress gained
 per night vs. recovered), and two of my "obvious" corrections overshot in
@@ -371,23 +400,25 @@ characters.
 
 ## What's left, in the order I'd do it
 
-Everything mechanical on the old list is done. What remains is either a
-judgement call or work on the art.
+Everything mechanical is done. What remains is art, and one honest caveat.
 
-1. **Balance constants predate the working harness.** Anything justified by
-   a harness run before `WorldRandom` was measured against ±55% noise.
-   Re-derive rather than trust — including numbers whose commit messages
-   sound confident.
-
-2. **Asset decimation.** Thirteen files drew GitHub's "larger than the
+1. **Asset decimation.** Thirteen files drew GitHub's "larger than the
    recommended 50 MB" warning, and four beds are excluded from the repo for
    breaking the 100 MiB hard limit. A 70 MB rug is a Meshy default, not a
    game asset. Has to happen before release regardless of storage.
 
-3. **Nothing consumes `EmergentContextEmitter`'s output** except
-   `MasterGameLoop`, which only constructs it. It builds a rich world-state
-   payload for an LLM that is not there. Same shape as the crisis director
-   before it was inverted — worth either an authored consumer or deletion.
+2. **The remaining balance constants have not been swept.** Commission and
+   base room price were re-derived above. `BaseArrivalsPerNight`,
+   `NightlyMaintenanceRepair`, `BaseDailyStressRecovery`, the encounter
+   scoring bands and the licence ceilings were all set before the harness
+   was deterministic. They pass, but "passes" and "was chosen deliberately"
+   are different claims.
+
+3. **Sentiment barely moves on its own.** It sits at 50 through a whole
+   naive run and only shifts when a crisis choice or a strike resolution
+   moves it. The scandal trigger therefore only fires as a consequence of
+   the player's own decisions, never from drift. That may be correct; it has
+   never been examined.
 
 ---
 

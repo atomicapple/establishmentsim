@@ -49,11 +49,11 @@ public partial class MasterGameLoop : Node
     /// Executes the daily tick in the spec-mandated deterministic order:
     /// Spatial → Economic → Psychology → Heat → AI Director.
     ///
-    /// Individual systems (FinancialLedger, HeatSystem, PsychologicalBreakSystem,
-    /// EmergentContextEmitter) maintain their own OnDailyTick handlers for their
-    /// core logic. This method adds the cross-cutting ordered steps that systems
-    /// don't handle individually — specifically spatial recalculations and
-    /// ensuring the evaluation pipeline observes the correct dependency chain.
+    /// Individual systems (FinancialLedger, HeatSystem, PsychologicalBreakSystem)
+    /// maintain their own OnDailyTick handlers for their core logic. This method
+    /// adds the cross-cutting ordered steps that systems don't handle
+    /// individually — specifically spatial recalculations and ensuring the
+    /// evaluation pipeline observes the correct dependency chain.
     /// </summary>
     private void OnDailyTickOrdered(double cash, float rep, float heat, float sent)
     {
@@ -69,10 +69,12 @@ public partial class MasterGameLoop : Node
         //   [4] PsychologicalBreakSystem → reads post-economic staff state
         //   [5] HeatSystem → reads post-psychology heat factors
 
-        // Step 6: AI Director Trigger Evaluation
-        // Runs LAST — after all other systems have committed their state updates.
-        // EmergentContextEmitter evaluates its own triggers in its OnDailyTick handler,
-        // which fires last because it connects its signal in CallDeferred (after other systems).
+        // Step 6 was "AI Director Trigger Evaluation", handled by
+        // EmergentContextEmitter. That class was never instantiated — this
+        // comment was the only thing in the repo that referred to it — and it
+        // existed to print a world-state payload for an out-of-process
+        // language model to read off stdout. Deleted. CrisisNarrativeDirector
+        // covers the same ground, is live, and works without the model.
     }
 
     // ── Phase Transitions ──────────────────────────────────────────────
