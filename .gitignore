@@ -38,13 +38,9 @@ obj/
 # hard limit. No LFS: the free tier is 1 GB and nothing here needs it once
 # the four exceptions below are out.
 #
-# The four ornate bed exports from Meshy are 103–138 MiB each — over the
-# limit, so a push containing any of them is rejected outright. They are
-# also absurd as game assets: 138 MiB for something the player sees at a
-# couple of hundred pixels behind a cutaway wall. Excluded pending
-# replacement with smaller textured models. The small Regal Purple Velvet
-# bed in the same folder is 300 KB and IS tracked.
-Assets/Furniture/Beds/GLB/Meshy_AI_isolated_ornate_luxur_*.glb
+# Nothing is excluded any more. The four ornate beds were 103-138 MiB each
+# and over GitHub's hard limit; decimated they are 4.4-5.9 MB and tracked
+# like everything else. See tools/ for how.
 
 # ── Local tooling and scratch ─────────────────────────────────────────
 /.reasonix/
@@ -55,3 +51,10 @@ Assets/Furniture/Beds/GLB/Meshy_AI_isolated_ornate_luxur_*.glb
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# npm tooling for asset optimisation. Not part of the game.
+/node_modules/
+package-lock.json
+package.json
+/Assets_optimised/
+/tools/node_modules/

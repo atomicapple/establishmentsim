@@ -243,7 +243,9 @@ invisible window.
 
 See `ASSETS.md` — it documents the drop-in conventions in full.
 
-Short version: **`Assets/` is gitignored** (~1.2 GB, exceeds free LFS quota).
+Short version: **`Assets/` is tracked in full** — 804 MB, nothing excluded,
+no LFS. It was 2.1 GB with four files over GitHub's 100 MiB hard limit until
+`tools/` was written; see below.
 Furniture auto-discovers from folder names under `Assets/Furniture/`; the
 folder picks the category, the filename can name a style. The scan walks *up*
 the path, so `Beds/GLB/x.glb` works.
@@ -438,37 +440,66 @@ characters.
 
 ---
 
+## Asset optimisation
+
+`tools/` decimates the Meshy exports. Run it after dropping new models in:
+
+```bash
+npm install --no-save @gltf-transform/cli   # once
+node tools/decimate-all.mjs                 # Assets/ -> Assets_optimised/
+```
+
+It never writes over an input. Copy the results in yourself once you have
+looked at them.
+
+```
+1,525 MB of .glb  ->  253 MB      Assets/ total 2.1 GB -> 804 MB
+largest bed        138.4 -> 5.9 MB     1,729,170 -> 86,404 tris
+purple runner rug   31.2 -> 1.0 MB        (all texture, barely any geometry)
+```
+
+**Four things about this were not obvious and cost hours:**
+
+1. **`weld` merges only bitwise-identical vertices.** These meshes are
+   faceted, so every triangle carries its own normals and nothing matches —
+   welding removed 32 triangles out of 1.7 million. Without shared edges
+   `simplify` has nothing to collapse and does nothing at all. Strip NORMAL
+   first, weld on position, decimate, regenerate normals.
+
+2. **Importing `@gltf-transform/functions` breaks `sharp` in the same
+   process.** Every texture resize then fails with `colourspace: parameter
+   space not set`. That reads like a colour-management problem and is a
+   module-loading one. This is why textures and geometry run as two separate
+   processes — `shrink-textures.mjs` must never import `functions`.
+
+3. **`NodeIO` silently drops extensions it was not told to register.** A
+   first pass discarded `KHR_materials_specular` and `KHR_materials_ior` from
+   every character, changing how they shade for no reason connected to size.
+   `registerExtensions(ALL_EXTENSIONS)`.
+
+4. **Which half dominates is not guessable from the file size.** A 138 MB bed
+   was pure geometry with no textures at all; a 31 MB rug was 35k triangles
+   and four 4096² JPEGs. Both need handling.
+
+Originals of the four beds — the only files git never had — are at
+`C:\whorehouse_asset_backup`.
+
+### Still oversized, and probably deletable
+
+The five largest remaining files are all in `Characters/` and none of them
+are in `CharacterLibrary`: the gargoyle (37.5 MB), `Orgy_Fresh_Squeeze`
+(27.7), `Crimson_Whirlwind` (21.9), `Pink_Heart_Roller_Der` (19.9). The
+library registers two female rigs and the gentleman. Worth confirming they
+are unused and deleting them — that is another ~107 MB.
+
+---
+
 ## What's left
 
-### 1. Asset decimation
+1. **The unused character models above.**
 
-Thirteen files drew GitHub's "larger than the recommended 50 MB" warning and
-four beds are excluded from the repo for breaking the 100 MiB hard limit. A
-70 MB rug is a Meshy default, not a game asset. This has to happen before
-release regardless of where the files live. It needs a tool that is not in
-the repo (`gltf-transform` or similar), so it needs a decision about
-installing one.
-
-### 2. Public sentiment — WIRED, note kept for the reasoning
-
-It used to move through exactly two things — crisis choices and
-`HireStrikebreakers` — so nothing that happened during a night touched it and
-it sat at 50 for an entire campaign. The scandal crisis it gates could only
-fire as a consequence of a decision made elsewhere.
-
-Now wired to the night loop, with reputation and sentiment kept deliberately
-different:
-
-**Reputation is whether the house is any good.** Every quality band moves it.
-
-**Sentiment is whether the neighbours have to know the house exists.** A
-merely disappointing night costs almost nothing (−0.2); the incidents that
-spill into the street cost the most (`ClientAbuse` −2.5, `NoiseComplaint`
-−2). A quiet bad house is a commercial problem; a loud one is a political
-problem.
-
-Recovery is asymmetric, like reputation's, and slower (0.06 vs 0.10) — a
-neighbourhood forgives more slowly than a clientele forgets.
+2. **Balance constants predate the working harness** for everything except
+   the five swept in this file. Re-derive rather than trust.
 
 ## Repo
 
