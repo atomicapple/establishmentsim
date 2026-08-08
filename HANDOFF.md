@@ -35,7 +35,7 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 # The game, windowed
 ./Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x900 main.tscn
 
-# Smoke test — 198 checks, the main safety net
+# Smoke test — 200 checks, the main safety net
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . smoke_test.tscn
 
 # Balance harness — 20 simulated nights + a nine-point verdict
@@ -442,28 +442,35 @@ release regardless of where the files live. It needs a tool that is not in
 the repo (`gltf-transform` or similar), so it needs a decision about
 installing one.
 
-### 2. Public sentiment is a closed loop
+### 2. The Ledger's Standing section is below the fold
 
-Traced properly. `PublicSentiment` is moved by exactly two things:
+`NightLedgerScreen` wraps its panel in a `CenterContainer`, which sizes a
+child to its minimum — so the panel never grows with the window and the
+scroll region is fixed. At any resolution the "Standing" row (reputation,
+heat, public feeling) sits below the fold and is reachable only by scrolling
+a thin, easily-missed bar. Three stats there now rather than two, so it
+matters more than it did.
 
-- crisis choices, via `CrisisEffects.PublicSentiment`
-- `UnionizationManager.HireStrikebreakers`, which takes 10
+### 3. Public sentiment — WIRED, note kept for the reasoning
 
-**Nothing in the night loop touches it.** Not a Disastrous encounter, not a
-staff breakdown, not a raid, not fifty nights of turning people away. It sits
-at 50 for an entire naive campaign.
+It used to move through exactly two things — crisis choices and
+`HireStrikebreakers` — so nothing that happened during a night touched it and
+it sat at 50 for an entire campaign. The scandal crisis it gates could only
+fire as a consequence of a decision made elsewhere.
 
-So the stat is real, displayed, and gates the `PublicScandal` crisis — but it
-only ever moves as a consequence of decisions the player already made
-elsewhere. It has no input from ordinary play. That is a coherent design (a
-memory of hard choices) and it is also indistinguishable from an unfinished
-one, which is why it is written down here rather than quietly changed.
+Now wired to the night loop, with reputation and sentiment kept deliberately
+different:
 
-If it should respond to play, the natural wiring is one line in
-`NightDirector.ApplySocialAndShiftEffects` — Disastrous outcomes and staff
-breaks push it down, quiet well-run nights let it drift back toward 50, the
-same asymmetric shape reputation now uses. Expect it to raise the crisis rate,
-since the scandal trigger would finally have a source.
+**Reputation is whether the house is any good.** Every quality band moves it.
+
+**Sentiment is whether the neighbours have to know the house exists.** A
+merely disappointing night costs almost nothing (−0.2); the incidents that
+spill into the street cost the most (`ClientAbuse` −2.5, `NoiseComplaint`
+−2). A quiet bad house is a commercial problem; a loud one is a political
+problem.
+
+Recovery is asymmetric, like reputation's, and slower (0.06 vs 0.10) — a
+neighbourhood forgives more slowly than a clientele forgets.
 
 ## Repo
 

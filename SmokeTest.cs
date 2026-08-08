@@ -23,6 +23,9 @@ public partial class SmokeTest : Node
     private Stage _stage = Stage.Waiting;
 
     private int _nightsPlayed;
+
+    /// <summary>Sentiment sunk before the last night, to prove it recovers.</summary>
+    private float _sentimentBeforeLastNight;
     private const int NightsToPlay = 3;
 
     private readonly List<string> _failures = new();
@@ -81,6 +84,18 @@ public partial class SmokeTest : Node
 
     private void StartNight()
     {
+        // Sunk deliberately before the last night so the recovery drift has
+        // something to climb out of. Public sentiment used to be a closed
+        // loop — moved only by crisis choices and HireStrikebreakers, never
+        // by anything that happened during a night — so it sat at 50 for an
+        // entire campaign and the scandal crisis could only fire as a
+        // consequence of a decision made elsewhere.
+        if (_nightsPlayed == NightsToPlay - 1 && GameStateManager.Instance != null)
+        {
+            GameStateManager.Instance.PublicSentiment = 20f;
+            _sentimentBeforeLastNight = 20f;
+        }
+
         _boot.Night.BeginNight();
 
         var assigned = _boot.AutoAssignStaff();
@@ -123,6 +138,20 @@ public partial class SmokeTest : Node
 
         Check($"night {report.Night}: day advanced",
             GameStateManager.Instance.DayCount == dayBefore + 1);
+
+        if (_sentimentBeforeLastNight > 0f)
+        {
+            var now = GameStateManager.Instance.PublicSentiment;
+
+            Check($"a quiet night lets the neighbourhood forget " +
+                  $"({_sentimentBeforeLastNight:F0} → {now:F0})",
+                now > _sentimentBeforeLastNight);
+
+            Check("and the night reports the movement",
+                !Mathf.IsZeroApprox(report.SentimentDelta));
+
+            _sentimentBeforeLastNight = 0f;
+        }
 
         if (_nightsPlayed >= NightsToPlay)
         {

@@ -76,6 +76,9 @@ public class NightReport
     public float ReputationDelta { get; set; }
     public float HeatDelta { get; set; }
 
+    /// <summary>Movement in how the neighbourhood feels about the house.</summary>
+    public float SentimentDelta { get; set; }
+
     public Dictionary<EncounterQuality, int> QualityCounts { get; } = new();
     public List<string> Highlights { get; } = new();
     public List<string> Incidents { get; } = new();
@@ -377,6 +380,7 @@ public partial class NightDirector : Node, ISaveableSystem
 
         ApplySocialAndShiftEffects();
         ApplyReputationMemory();
+        ApplySentimentMemory();
 
         // Age the client book so people who stop coming eventually drop off.
         FindRegulars()?.AdvanceNight();
@@ -386,6 +390,85 @@ public partial class NightDirector : Node, ISaveableSystem
 
         GD.Print($"[NightDirector] {_report}");
     }
+
+    /// <summary>
+    /// What one encounter does to how the neighbourhood feels.
+    ///
+    /// Public sentiment was a closed loop: it moved only through crisis
+    /// choices and <c>HireStrikebreakers</c>, so nothing that happened during
+    /// a night touched it and it sat at 50 through an entire campaign. It
+    /// gated the scandal crisis, which therefore could only fire as a
+    /// consequence of decisions the player had already made elsewhere.
+    ///
+    /// Reputation and sentiment are deliberately different things.
+    /// Reputation is whether the house is any good, and every band moves it.
+    /// Sentiment is whether the neighbours have to know the house exists — so
+    /// a merely disappointing night costs almost nothing, and the incidents
+    /// that spill into the street cost the most. A quiet, bad house is a
+    /// commercial problem. A loud one is a political problem.
+    /// </summary>
+    private static float SentimentDeltaFor(EncounterQuality quality, EncounterIncident incident)
+    {
+        var delta = quality switch
+        {
+            EncounterQuality.Disastrous => -1.5f,
+            EncounterQuality.Poor => -0.2f,
+            _ => 0f
+        };
+
+        delta += incident switch
+        {
+            // Someone was hurt, and people talk.
+            EncounterIncident.ClientAbuse => -2.5f,
+
+            // Audible from the pavement — the one incident that is literally
+            // about the neighbours.
+            EncounterIncident.NoiseComplaint => -2f,
+
+            // Distressing to witness, but it stayed inside the house.
+            EncounterIncident.StaffBreakdown => -0.8f,
+
+            // A row about a bill. Embarrassing, not damaging.
+            EncounterIncident.PaymentDispute => -0.3f,
+
+            _ => 0f
+        };
+
+        return delta;
+    }
+
+    /// <summary>
+    /// Quiet nights let the neighbourhood forget.
+    ///
+    /// Asymmetric for the same reason reputation's recovery is: goodwill the
+    /// house earned by closing a floor or paying people off should not
+    /// evaporate on its own, but a bad stretch has to be survivable or the
+    /// scandal trigger becomes a one-way trip.
+    /// </summary>
+    private void ApplySentimentMemory()
+    {
+        var gsm = GameStateManager.Instance;
+        if (gsm == null || Mathf.IsZeroApprox(SentimentRecoveryRate)) return;
+
+        var gap = SentimentBaseline - gsm.PublicSentiment;
+        if (gap <= 0f) return;
+
+        var drift = gap * SentimentRecoveryRate;
+        if (Mathf.IsZeroApprox(drift)) return;
+
+        gsm.PublicSentiment += drift;
+        _report.SentimentDelta += drift;
+    }
+
+    /// <summary>Where public feeling settles when nothing is happening.</summary>
+    [Export] public float SentimentBaseline { get; set; } = 50f;
+
+    /// <summary>
+    /// How much of the gap up to the baseline a quiet night closes. Slower
+    /// than reputation's: a neighbourhood forgives more slowly than a
+    /// clientele forgets.
+    /// </summary>
+    [Export] public float SentimentRecoveryRate { get; set; } = 0.06f;
 
     /// <summary>
     /// The city forgets, in both directions.
@@ -780,6 +863,13 @@ public partial class NightDirector : Node, ISaveableSystem
             {
                 gsm.Heat += outcome.HeatDelta;
                 _report.HeatDelta += outcome.HeatDelta;
+            }
+
+            var sentiment = SentimentDeltaFor(outcome.Quality, outcome.Incident);
+            if (!Mathf.IsZeroApprox(sentiment))
+            {
+                gsm.PublicSentiment += sentiment;
+                _report.SentimentDelta += sentiment;
             }
         }
 

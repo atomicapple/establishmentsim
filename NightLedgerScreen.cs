@@ -445,10 +445,16 @@ public partial class NightLedgerScreen : CanvasLayer
 
         float rep = report?.ReputationDelta ?? 0f;
         float heat = report?.HeatDelta ?? 0f;
+        float sentiment = report?.SentimentDelta ?? 0f;
 
         // Reputation up is good; heat up is not — the colours have to invert.
         AddStatBlock(row, "Reputation", Signed(rep), DeltaColor(rep, higherIsBetter: true));
         AddStatBlock(row, "Heat", Signed(heat), DeltaColor(heat, higherIsBetter: false));
+
+        // Sentiment moved only through crisis choices until the night loop
+        // was wired to it, so this block would have read ±0.0 every night.
+        AddStatBlock(row, "Public feeling", Signed(sentiment),
+            DeltaColor(sentiment, higherIsBetter: true));
     }
 
     private static string Signed(float value)
