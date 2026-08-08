@@ -46,6 +46,13 @@ public partial class GameScene : Node
     /// <summary>Capture runs only: open the influence panel.</summary>
     [Export] public bool CaptureInfluencePanel { get; set; }
 
+    /// <summary>
+    /// Capture runs only: override the orthographic camera size, in metres of
+    /// world height. Zero keeps the automatic fit. Small values zoom in for
+    /// inspecting furniture and room detail.
+    /// </summary>
+    [Export] public float CaptureCameraSize { get; set; }
+
     /// <summary>Seconds before an automatic screenshot. Zero disables it.</summary>
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
@@ -317,7 +324,12 @@ public partial class GameScene : Node
     /// business — it knows the world extent and its own Size — so this is now
     /// a passthrough, kept as a seam for HUD-aware framing later.
     /// </summary>
-    private void FitCameraToBuilding() => _view?.CenterOnBuilding();
+    private void FitCameraToBuilding()
+    {
+        _view?.CenterOnBuilding();
+
+        if (CaptureCameraSize > 0f) _view?.SetCameraSize(CaptureCameraSize);
+    }
 
     private const float HudTopBarHeight = 58f;
     private const float HudBottomHeight = 130f;

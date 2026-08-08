@@ -67,9 +67,16 @@ public partial class VenueView3D : Node3D
             var clamped = Mathf.Clamp(value, _venue.LowestFloor, _venue.HighestFloor);
             if (clamped == _focusedFloor) return;
 
+            var previous = _focusedFloor;
             _focusedFloor = clamped;
+
             ApplyFloorVisibility();
             RebuildGhosts();
+
+            // Track the floor change vertically so the new floor lands where
+            // the old one was, rather than the view appearing to jump.
+            PanByWorld(new Vector3(
+                0f, (_focusedFloor - previous) * VenueSpace.FloorHeight, 0f));
 
             EmitSignal(SignalName.OnFocusedFloorChanged, _focusedFloor);
         }
@@ -458,11 +465,15 @@ public partial class VenueView3D : Node3D
         }
 
         var bounds = GetBuildingBoundsXZ();
-        var midFloor = (_venue.LowestFloor + _venue.HighestFloor) * 0.5f;
 
+        // Centre on the floor being read, not the middle of the stack. The
+        // midpoint works only while the whole building fits on screen; zoomed
+        // in, it puts the focused floor off-frame entirely. Following the
+        // focus also means switching floors keeps the camera where the player
+        // is looking.
         _cameraPivot = new Vector3(
             bounds.Position.X + bounds.Size.X * 0.5f,
-            midFloor * VenueSpace.FloorHeight + VenueSpace.WallHeight * 0.5f,
+            VenueSpace.FloorY(_focusedFloor) + VenueSpace.WallHeight * 0.5f,
             bounds.Position.Y + bounds.Size.Y * 0.5f);
 
         // Enough vertical room for the whole stack plus the plan's own depth.

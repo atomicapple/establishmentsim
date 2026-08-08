@@ -187,16 +187,24 @@ public static class IsoTheme
         _ => new Color("3a3244")
     };
 
-    /// <summary>Accent colour per furniture style, for placeholder pieces.</summary>
+    /// <summary>
+    /// Accent colour per furniture style.
+    ///
+    /// Pitched bright enough to separate from the room behind them. The
+    /// original values were chosen for flat 2D fills; under 3D lighting they
+    /// came out dark, and Baroque plum on a mauve suite floor disappeared
+    /// entirely. Each style also has to stay distinguishable from the others,
+    /// since telling them apart at a glance is how the player reads coherence.
+    /// </summary>
     public static Color GetStyleColor(FurnitureStyle style) => style switch
     {
-        FurnitureStyle.Baroque => new Color("8b3a5e"),
-        FurnitureStyle.ArtDeco => new Color("caa15b"),
-        FurnitureStyle.Oriental => new Color("9d4b3a"),
-        FurnitureStyle.Bohemian => new Color("7a6a3f"),
-        FurnitureStyle.Modern => new Color("55606b"),
-        FurnitureStyle.Spartan => new Color("6b6560"),
-        _ => new Color("5a5560")
+        FurnitureStyle.Baroque => new Color("c25d84"),
+        FurnitureStyle.ArtDeco => new Color("e0b468"),
+        FurnitureStyle.Oriental => new Color("cc6f4a"),
+        FurnitureStyle.Bohemian => new Color("a8925a"),
+        FurnitureStyle.Modern => new Color("8494a4"),
+        FurnitureStyle.Spartan => new Color("9a9289"),
+        _ => new Color("7d7788")
     };
 
     /// <summary>

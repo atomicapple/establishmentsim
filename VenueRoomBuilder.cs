@@ -4,12 +4,14 @@ using System.Collections.Generic;
 
 /// <summary>
 /// Turns one <see cref="RoomModule"/> into real 3D geometry: a floor slab, the
-/// two back walls that make it read as a cutaway, and its furniture.
+/// two back walls that make it read as a cutaway, the trim that stops those
+/// walls looking like bare cardboard, and its furniture.
 ///
 /// Kept separate from <see cref="VenueView3D"/> deliberately — the view is
-/// about camera, focus and input, and every piece of "what does a bed look
-/// like" knowledge lives here instead. Every position, size and height comes
+/// about camera, focus and input, and every position, size and height comes
 /// from <see cref="VenueSpace"/>; every colour from <see cref="IsoTheme"/>.
+/// What a bed looks like lives one level further out again, in
+/// <see cref="VenueFurnitureBuilder"/>.
 ///
 /// Which two edges get walls is derived from <see cref="VenueSpace.CameraBasis"/>
 /// rather than hardcoded, so the cutaway stays open toward the viewer if the
@@ -33,35 +35,19 @@ public static class VenueRoomBuilder
     /// <summary>Metadata key carrying a room's origin tile on a pickable body.</summary>
     public const string OriginMetaKey = "venue_room_origin";
 
-    // ── Furniture models ───────────────────────────────────────────────
+    // ── Trim ───────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Real models, by the category they stand in for. Anything not listed
-    /// falls back to a procedural silhouette.
-    /// </summary>
-    private static readonly Dictionary<FurnitureCategory, string> ModelPaths = new()
-    {
-        [FurnitureCategory.Lighting] = "res://Assets/Furniture/Lamps/brass_vintage_table_lamp.glb",
-        [FurnitureCategory.Decor] = "res://Assets/Furniture/Mirrors/rococo_gold_mirror.glb",
-        [FurnitureCategory.Vanity] = "res://Assets/Furniture/Tables/victorian_mahogany_nighttable.glb"
-    };
+    /// <summary>Height of the skirting strip at the foot of a back wall.</summary>
+    private const float BaseboardHeight = 0.17f;
 
-    /// <summary>Real-world height, in metres, each model is normalised to.</summary>
-    private static readonly Dictionary<FurnitureCategory, float> ModelHeights = new()
-    {
-        [FurnitureCategory.Lighting] = 0.55f,
-        [FurnitureCategory.Decor] = 1.10f,
-        [FurnitureCategory.Vanity] = 0.70f
-    };
+    /// <summary>Height of the picture rail at the top of a back wall.</summary>
+    private const float CorniceHeight = 0.09f;
 
-    /// <summary>
-    /// Parsed models, kept so a house with thirty lamps parses one 37 MB glb
-    /// rather than thirty. Instances are <see cref="Node.Duplicate"/>s of these.
-    /// </summary>
-    private static readonly Dictionary<string, Node3D> _modelCache = new();
+    /// <summary>How far trim stands proud of the wall face, per side.</summary>
+    private const float TrimProud = 0.035f;
 
-    /// <summary>Paths that failed to load, so we do not retry them every frame.</summary>
-    private static readonly HashSet<string> _modelFailures = new();
+    /// <summary>Width of the darker border band inset around a floor slab.</summary>
+    private const float FloorBandWidth = 0.16f;
 
     // ── Room ───────────────────────────────────────────────────────────
 
@@ -83,7 +69,26 @@ public static class VenueRoomBuilder
 
         var root = new Node3D { Name = SafeName($"Room_{origin.X}_{origin.Y}_F{origin.Z}") };
 
+        // Back-of-house rooms get no gilding at all. Security in particular is
+        // meant to look like the one part of the building nobody is charged to
+        // be in, so its palette is flattened and its trim omitted entirely.
+        bool utilitarian = room.Type == RoomType.Security
+                        || room.Type == RoomType.Storage
+                        || room.Type == RoomType.Service;
+
         var roomColor = IsoTheme.GetRoomColor(room.Type);
+        if (utilitarian) roomColor = Desaturate(roomColor, 0.55f);
+
+        // Only a hint of the room colour. At 30% the floor went fully mauve in
+        // a suite and Baroque furniture — which is plum — vanished into it.
+        // The room's identity belongs in its walls; floors stay timber so
+        // whatever stands on them reads.
+        var floorColor = IsoTheme.FloorBoards.Lerp(roomColor, 0.12f);
+
+        // A lounge is the one public room people are supposed to linger in;
+        // warming its boards separates it from the suites without a new hue.
+        if (room.Type == RoomType.Lounge)
+            floorColor = floorColor.Lerp(IsoTheme.FloorBoardsLit, 0.35f);
 
         // ── Floor slab ─────────────────────────────────────────────────
         // Hung *below* the walking surface so VenueSpace.FloorY stays the
@@ -91,7 +96,7 @@ public static class VenueRoomBuilder
         var slab = MakeBox(
             new Vector3(centre.X, floorY - VenueSpace.SlabThickness * 0.5f, centre.Z),
             new Vector3(footprint.X, VenueSpace.SlabThickness, footprint.Y),
-            IsoTheme.FloorBoards.Lerp(roomColor, 0.30f));
+            floorColor);
         slab.Name = "Slab";
         root.AddChild(slab);
 
@@ -112,6 +117,8 @@ public static class VenueRoomBuilder
             }
         });
         slab.AddChild(body);
+
+        BuildFloorBand(root, centre, footprint, floorY, floorColor);
 
         // ── Back walls ─────────────────────────────────────────────────
         var (wallAtMaxX, wallAtMaxZ) = BackWallEdges();
@@ -142,10 +149,154 @@ public static class VenueRoomBuilder
         wallZ.Name = "WallZ";
         root.AddChild(wallZ);
 
+        BuildWallTrim(root, centre, footprint, floorY, xEdge, zEdge, wallColor, utilitarian);
+
+        // A bar's identity is the bottle wall behind the counter, not the
+        // counter, so the room itself carries one whether it is furnished yet
+        // or not.
+        if (room.Type == RoomType.Bar)
+            BuildBarBackShelf(root, centre, footprint, floorY, xEdge, wallAtMaxX, roomColor);
+
         // ── Furniture ──────────────────────────────────────────────────
-        BuildFurniture(room, origin, size, root);
+        VenueFurnitureBuilder.Build(room, origin, size, root);
 
         return root;
+    }
+
+    /// <summary>
+    /// Skirting along the foot of both back walls and a picture rail along the
+    /// top. Both stand slightly proud of the wall face so they catch the light
+    /// as separate planes rather than reading as painted-on stripes.
+    /// </summary>
+    private static void BuildWallTrim(
+        Node3D root,
+        Vector3 centre,
+        Vector2 footprint,
+        float floorY,
+        float xEdge,
+        float zEdge,
+        Color wallColor,
+        bool utilitarian)
+    {
+        float depth = VenueSpace.WallThickness + TrimProud * 2f;
+        var skirting = wallColor.Darkened(0.45f);
+
+        var baseX = MakeBox(
+            new Vector3(xEdge, floorY + BaseboardHeight * 0.5f, centre.Z),
+            new Vector3(depth, BaseboardHeight, footprint.Y),
+            skirting);
+        baseX.Name = "BaseboardX";
+        root.AddChild(baseX);
+
+        var baseZ = MakeBox(
+            new Vector3(centre.X, floorY + BaseboardHeight * 0.5f, zEdge),
+            new Vector3(footprint.X, BaseboardHeight, depth),
+            skirting.Darkened(0.10f));
+        baseZ.Name = "BaseboardZ";
+        root.AddChild(baseZ);
+
+        // Utilitarian rooms stop here — no rail, no gold, nothing decorative.
+        if (utilitarian) return;
+
+        float railY = floorY + VenueSpace.WallHeight - CorniceHeight * 0.5f;
+
+        var railX = MakeBox(
+            new Vector3(xEdge, railY, centre.Z),
+            new Vector3(depth, CorniceHeight, footprint.Y),
+            IsoTheme.GoldDim);
+        railX.Name = "CorniceX";
+        root.AddChild(railX);
+
+        var railZ = MakeBox(
+            new Vector3(centre.X, railY, zEdge),
+            new Vector3(footprint.X, CorniceHeight, depth),
+            IsoTheme.GoldDim.Darkened(0.12f));
+        railZ.Name = "CorniceZ";
+        root.AddChild(railZ);
+    }
+
+    /// <summary>
+    /// A slightly darker border band laid on the floor around the slab's edge.
+    /// Two adjacent rooms of the same type were previously one continuous sheet
+    /// of colour; the band gives each footprint its own outline without needing
+    /// a wall on the open sides.
+    /// </summary>
+    private static void BuildFloorBand(
+        Node3D root, Vector3 centre, Vector2 footprint, float floorY, Color floorColor)
+    {
+        var band = floorColor.Darkened(0.38f);
+
+        float y = floorY + 0.012f;
+        const float thickness = 0.024f;
+
+        float halfX = footprint.X * 0.5f - FloorBandWidth * 0.5f;
+        float halfZ = footprint.Y * 0.5f - FloorBandWidth * 0.5f;
+
+        var strips = new (string Name, Vector3 At, Vector3 Size)[]
+        {
+            ("BandZMin", new Vector3(centre.X, y, centre.Z - halfZ),
+                new Vector3(footprint.X, thickness, FloorBandWidth)),
+            ("BandZMax", new Vector3(centre.X, y, centre.Z + halfZ),
+                new Vector3(footprint.X, thickness, FloorBandWidth)),
+            ("BandXMin", new Vector3(centre.X - halfX, y, centre.Z),
+                new Vector3(FloorBandWidth, thickness, footprint.Y)),
+            ("BandXMax", new Vector3(centre.X + halfX, y, centre.Z),
+                new Vector3(FloorBandWidth, thickness, footprint.Y))
+        };
+
+        foreach (var strip in strips)
+        {
+            var mesh = MakeBox(strip.At, strip.Size, band);
+            mesh.Name = strip.Name;
+            mesh.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+            root.AddChild(mesh);
+        }
+    }
+
+    /// <summary>
+    /// Bottle shelving along the X back wall of a bar: a dark backing board and
+    /// two planks, set in from the wall face so they read in silhouette.
+    /// </summary>
+    private static void BuildBarBackShelf(
+        Node3D root,
+        Vector3 centre,
+        Vector2 footprint,
+        float floorY,
+        float xEdge,
+        bool wallAtMaxX,
+        Color roomColor)
+    {
+        // Push into the room, away from whichever side the wall sits on.
+        float inward = wallAtMaxX ? -1f : 1f;
+        float length = Mathf.Max(0.6f, footprint.Y * 0.7f);
+
+        var backing = MakeBox(
+            new Vector3(xEdge + inward * 0.09f, floorY + 1.30f, centre.Z),
+            new Vector3(0.06f, 1.50f, length),
+            roomColor.Darkened(0.62f));
+        backing.Name = "BarBacking";
+        root.AddChild(backing);
+
+        for (int i = 0; i < 2; i++)
+        {
+            var plank = MakeBox(
+                new Vector3(xEdge + inward * 0.22f, floorY + 0.95f + i * 0.55f, centre.Z),
+                new Vector3(0.28f, 0.06f, length),
+                roomColor.Lightened(0.14f));
+
+            plank.Name = $"BarShelf{i}";
+            root.AddChild(plank);
+        }
+    }
+
+    /// <summary>
+    /// Pull a colour toward its own luminance. Used for the back-of-house
+    /// rooms, where a drab palette is the point rather than a compromise.
+    /// </summary>
+    private static Color Desaturate(Color colour, float amount)
+    {
+        float luma = colour.R * 0.299f + colour.G * 0.587f + colour.B * 0.114f;
+        return colour.Lerp(new Color(luma, luma, luma, colour.A), Mathf.Clamp(amount, 0f, 1f));
     }
 
     /// <summary>
@@ -233,373 +384,7 @@ public static class VenueRoomBuilder
     }
 
     /// <summary>Drop the parsed-model cache. Call on scene teardown.</summary>
-    public static void ClearModelCache()
-    {
-        foreach (var model in _modelCache.Values)
-        {
-            if (model != null && GodotObject.IsInstanceValid(model)) model.QueueFree();
-        }
-
-        _modelCache.Clear();
-        _modelFailures.Clear();
-    }
-
-    // ── Furniture layout ───────────────────────────────────────────────
-
-    private static void BuildFurniture(RoomModule room, Vector3I origin, Vector2I size, Node3D root)
-    {
-        var pieces = room.Furniture;
-        if (pieces == null || pieces.Count == 0) return;
-
-        // Several pieces of one category fan out from that category's slot,
-        // so three lamps read as three lamps rather than one thick one.
-        var seen = new Dictionary<FurnitureCategory, int>();
-
-        foreach (var item in pieces)
-        {
-            if (item == null) continue;
-
-            int index = seen.TryGetValue(item.Category, out int n) ? n : 0;
-            seen[item.Category] = index + 1;
-
-            var slot = GetSlot(item.Category);
-            float u = Mathf.Clamp(slot.X + index * 0.17f, 0.12f, 0.88f);
-            float v = Mathf.Clamp(slot.Y + index * 0.11f, 0.12f, 0.88f);
-
-            var at = VenueSpace.RoomPoint(origin, size, u, v);
-
-            var tint = IsoTheme.GetStyleColor(item.StyleTag);
-            if (item.IsDilapidated) tint = tint.Lerp(IsoTheme.Backdrop, 0.55f);
-
-            var piece = BuildPiece(item, at, tint);
-            if (piece == null) continue;
-
-            piece.Name = SafeName($"{item.Category}_{index}");
-            root.AddChild(piece);
-        }
-    }
-
-    /// <summary>Normalised slot inside the footprint for each category.</summary>
-    private static Vector2 GetSlot(FurnitureCategory category) => category switch
-    {
-        FurnitureCategory.Rug => new Vector2(0.50f, 0.55f),
-        FurnitureCategory.Decor => new Vector2(0.50f, 0.12f),
-        FurnitureCategory.Bed => new Vector2(0.34f, 0.30f),
-        FurnitureCategory.Bar => new Vector2(0.50f, 0.24f),
-        FurnitureCategory.Vanity => new Vector2(0.78f, 0.28f),
-        FurnitureCategory.Screen => new Vector2(0.20f, 0.72f),
-        FurnitureCategory.Bath => new Vector2(0.76f, 0.74f),
-        FurnitureCategory.Seating => new Vector2(0.64f, 0.60f),
-        FurnitureCategory.Lighting => new Vector2(0.16f, 0.18f),
-        _ => new Vector2(0.50f, 0.50f)
-    };
-
-    private static Node3D BuildPiece(FurnitureItem item, Vector3 at, Color tint)
-    {
-        var model = TryInstanceModel(item, at, tint);
-        if (model != null) return model;
-
-        var node = new Node3D { Position = Vector3.Zero };
-
-        switch (item.Category)
-        {
-            case FurnitureCategory.Bed: BuildBed(node, at, tint); break;
-            case FurnitureCategory.Seating: BuildSeating(node, at, tint); break;
-            case FurnitureCategory.Rug: BuildRug(node, at, tint); break;
-            case FurnitureCategory.Bath: BuildBath(node, at, tint); break;
-            case FurnitureCategory.Screen: BuildScreen(node, at, tint); break;
-            case FurnitureCategory.Bar: BuildCounter(node, at, tint, 1.6f); break;
-            case FurnitureCategory.Vanity: BuildCounter(node, at, tint, 0.9f); break;
-            case FurnitureCategory.Decor: BuildDecor(node, at, tint); break;
-            case FurnitureCategory.Lighting: BuildLamp(node, at, tint); break;
-            default:
-                node.AddChild(MakeBox(
-                    at + new Vector3(0, 0.30f, 0),
-                    new Vector3(0.6f, 0.6f, 0.6f), tint));
-                break;
-        }
-
-        // Lighting always carries its own warm bulb, model or not — that glow
-        // is what makes the cutaway read as an interior rather than a diorama.
-        if (item.Category == FurnitureCategory.Lighting)
-            node.AddChild(MakeLampGlow(at, item.IsDilapidated));
-
-        return node;
-    }
-
-    // ── Procedural silhouettes ─────────────────────────────────────────
-
-    private static void BuildBed(Node3D node, Vector3 at, Color tint)
-    {
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.26f, 0f),
-            new Vector3(1.10f, 0.34f, 1.70f), tint));
-
-        // Headboard, toward the back of the room (−Z).
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.55f, -0.88f),
-            new Vector3(1.14f, 0.90f, 0.12f), tint.Darkened(0.35f)));
-
-        // Pillow, to break the slab up.
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.48f, -0.62f),
-            new Vector3(0.80f, 0.12f, 0.32f), tint.Lightened(0.45f)));
-    }
-
-    private static void BuildSeating(Node3D node, Vector3 at, Color tint)
-    {
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.24f, 0f),
-            new Vector3(0.90f, 0.30f, 0.70f), tint));
-
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.55f, -0.31f),
-            new Vector3(0.90f, 0.62f, 0.14f), tint.Darkened(0.28f)));
-    }
-
-    private static void BuildRug(Node3D node, Vector3 at, Color tint)
-    {
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.015f, 0f),
-            new Vector3(1.60f, 0.03f, 1.20f), tint.Darkened(0.15f)));
-
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.035f, 0f),
-            new Vector3(1.10f, 0.03f, 0.78f), tint.Lightened(0.30f)));
-    }
-
-    private static void BuildBath(Node3D node, Vector3 at, Color tint)
-    {
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.26f, 0f),
-            new Vector3(1.30f, 0.52f, 0.75f), tint.Darkened(0.20f)));
-
-        // Water/interior, sunk into the rim.
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.48f, 0f),
-            new Vector3(1.06f, 0.06f, 0.54f), new Color("2b4b57")));
-    }
-
-    private static void BuildScreen(Node3D node, Vector3 at, Color tint)
-    {
-        for (int i = 0; i < 3; i++)
-        {
-            var panel = MakeBox(
-                at + new Vector3((i - 1) * 0.38f, 0.75f, Mathf.Abs(i - 1) * 0.14f),
-                new Vector3(0.40f, 1.50f, 0.05f),
-                i == 1 ? tint : tint.Darkened(0.30f));
-
-            panel.RotateY(Mathf.DegToRad((i - 1) * 32f));
-            node.AddChild(panel);
-        }
-    }
-
-    private static void BuildCounter(Node3D node, Vector3 at, Color tint, float lengthFactor)
-    {
-        float length = 1.20f * lengthFactor;
-
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.50f, 0f),
-            new Vector3(length, 1.00f, 0.55f), tint));
-
-        node.AddChild(MakeBox(at + new Vector3(0f, 1.03f, 0f),
-            new Vector3(length + 0.10f, 0.06f, 0.65f), tint.Lightened(0.28f)));
-    }
-
-    private static void BuildDecor(Node3D node, Vector3 at, Color tint)
-    {
-        // Hung on the back wall rather than standing on the floor.
-        node.AddChild(MakeBox(at + new Vector3(0f, VenueSpace.WallHeight * 0.62f, 0f),
-            new Vector3(0.70f, 0.52f, 0.06f), tint));
-
-        node.AddChild(MakeBox(at + new Vector3(0f, VenueSpace.WallHeight * 0.62f, -0.035f),
-            new Vector3(0.78f, 0.60f, 0.03f), IsoTheme.Gold));
-    }
-
-    private static void BuildLamp(Node3D node, Vector3 at, Color tint)
-    {
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.03f, 0f),
-            new Vector3(0.24f, 0.06f, 0.24f), tint.Darkened(0.40f)));
-
-        node.AddChild(MakeBox(at + new Vector3(0f, 0.32f, 0f),
-            new Vector3(0.06f, 0.52f, 0.06f), tint.Darkened(0.25f)));
-
-        var shade = MakeBox(at + new Vector3(0f, 0.68f, 0f),
-            new Vector3(0.34f, 0.24f, 0.34f), IsoTheme.LampWarm);
-
-        if (shade.MaterialOverride is StandardMaterial3D mat)
-        {
-            mat.EmissionEnabled = true;
-            mat.Emission = IsoTheme.LampWarm;
-            mat.EmissionEnergyMultiplier = 1.4f;
-        }
-
-        node.AddChild(shade);
-    }
-
-    private static OmniLight3D MakeLampGlow(Vector3 at, bool dim) => new()
-    {
-        Name = "Glow",
-        Position = at + new Vector3(0f, 0.75f, 0f),
-        LightColor = IsoTheme.LampWarm,
-        LightEnergy = dim ? 0.55f : 1.25f,
-        OmniRange = 4.5f,
-        ShadowEnabled = false
-    };
-
-    // ── glb models ─────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Instance the real model for a category, scaled to a sensible size for a
-    /// 2 m tile. Returns null when there is no model for the category or the
-    /// file could not be parsed, in which case the caller falls back to a box.
-    /// </summary>
-    private static Node3D TryInstanceModel(FurnitureItem item, Vector3 at, Color tint)
-    {
-        if (!ModelPaths.TryGetValue(item.Category, out var path)) return null;
-
-        var source = LoadModel(path);
-        if (source == null) return null;
-
-        if (source.Duplicate() is not Node3D instance) return null;
-
-        float target = ModelHeights.TryGetValue(item.Category, out float h) ? h : 0.8f;
-        float scale = FitScale(instance, target);
-
-        instance.Scale = new Vector3(scale, scale, scale);
-        instance.Position = item.Category == FurnitureCategory.Decor
-            ? at + new Vector3(0f, VenueSpace.WallHeight * 0.45f, 0f)
-            : at;
-
-        // Dilapidated pieces are washed out even when they are real geometry,
-        // so decay reads the same way across model and procedural furniture.
-        if (item.IsDilapidated) TintModel(instance, IsoTheme.Backdrop.Lerp(tint, 0.35f));
-
-        var wrapper = new Node3D();
-        wrapper.AddChild(instance);
-        return wrapper;
-    }
-
-    /// <summary>
-    /// Parse a glb off disk. These files ship without usable import sidecars,
-    /// so <c>GD.Load</c> is not an option — the buffer has to go through
-    /// <see cref="GltfDocument"/> by hand.
-    /// </summary>
-    private static Node3D LoadModel(string path)
-    {
-        if (_modelCache.TryGetValue(path, out var cached))
-            return GodotObject.IsInstanceValid(cached) ? cached : null;
-
-        if (_modelFailures.Contains(path)) return null;
-
-        try
-        {
-            using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
-            if (file == null)
-            {
-                GD.PrintErr($"[VenueRoomBuilder] Cannot open '{path}'.");
-                _modelFailures.Add(path);
-                return null;
-            }
-
-            var bytes = file.GetBuffer((long)file.GetLength());
-            var basePath = path.GetBaseDir() + "/";
-
-            var document = new GltfDocument();
-            var state = new GltfState { BasePath = basePath };
-
-            if (document.AppendFromBuffer(bytes, basePath, state) != Error.Ok)
-            {
-                GD.PrintErr($"[VenueRoomBuilder] glTF parse failed for '{path}'.");
-                _modelFailures.Add(path);
-                return null;
-            }
-
-            if (document.GenerateScene(state) is not Node3D scene)
-            {
-                GD.PrintErr($"[VenueRoomBuilder] glTF produced no Node3D for '{path}'.");
-                _modelFailures.Add(path);
-                return null;
-            }
-
-            _modelCache[path] = scene;
-            GD.Print($"[VenueRoomBuilder] Loaded model '{path}'.");
-            return scene;
-        }
-        catch (Exception ex)
-        {
-            GD.PrintErr($"[VenueRoomBuilder] Model load error for '{path}': {ex.Message}");
-            _modelFailures.Add(path);
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Uniform scale that brings a model's own bounding box to
-    /// <paramref name="targetHeight"/> metres. Meshy output has no consistent
-    /// export scale, so measuring is the only way to get a lamp that is lamp
-    /// sized next to a hand-authored 2 m tile.
-    /// </summary>
-    private static float FitScale(Node3D model, float targetHeight)
-    {
-        var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
-        var max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
-        bool any = false;
-
-        // Measured ignoring the root's own transform, because the caller
-        // overwrites that scale with the result.
-        foreach (var child in model.GetChildren())
-            CollectExtent(child, Transform3D.Identity, ref min, ref max, ref any);
-
-        if (model is MeshInstance3D rootMesh && rootMesh.Mesh != null)
-            MergeAabb(Transform3D.Identity, rootMesh.Mesh.GetAabb(), ref min, ref max, ref any);
-
-        if (!any) return 1f;
-
-        float height = Mathf.Max(max.Y - min.Y, 0.0001f);
-        return Mathf.Clamp(targetHeight / height, 0.0001f, 10000f);
-    }
-
-    private static void CollectExtent(
-        Node node, Transform3D accumulated, ref Vector3 min, ref Vector3 max, ref bool any)
-    {
-        var local = node is Node3D spatial ? accumulated * spatial.Transform : accumulated;
-
-        if (node is MeshInstance3D mesh && mesh.Mesh != null)
-            MergeAabb(local, mesh.Mesh.GetAabb(), ref min, ref max, ref any);
-
-        foreach (var child in node.GetChildren())
-            CollectExtent(child, local, ref min, ref max, ref any);
-    }
-
-    /// <summary>Fold a mesh's local AABB, transformed corner by corner, into a running extent.</summary>
-    private static void MergeAabb(
-        Transform3D transform, Aabb box, ref Vector3 min, ref Vector3 max, ref bool any)
-    {
-        for (int corner = 0; corner < 8; corner++)
-        {
-            var point = transform * (box.Position + new Vector3(
-                (corner & 1) == 0 ? 0f : box.Size.X,
-                (corner & 2) == 0 ? 0f : box.Size.Y,
-                (corner & 4) == 0 ? 0f : box.Size.Z));
-
-            if (!any)
-            {
-                min = point;
-                max = point;
-                any = true;
-                continue;
-            }
-
-            min = new Vector3(Mathf.Min(min.X, point.X), Mathf.Min(min.Y, point.Y), Mathf.Min(min.Z, point.Z));
-            max = new Vector3(Mathf.Max(max.X, point.X), Mathf.Max(max.Y, point.Y), Mathf.Max(max.Z, point.Z));
-        }
-    }
-
-    private static void TintModel(Node node, Color tint)
-    {
-        if (node is GeometryInstance3D geom)
-        {
-            geom.MaterialOverride = new StandardMaterial3D
-            {
-                AlbedoColor = tint,
-                Transparency = BaseMaterial3D.TransparencyEnum.Alpha
-            };
-        }
-
-        foreach (var child in node.GetChildren())
-            TintModel(child, tint);
-    }
+    public static void ClearModelCache() => VenueFurnitureBuilder.ClearModelCache();
 
     // ── Primitives ─────────────────────────────────────────────────────
 
