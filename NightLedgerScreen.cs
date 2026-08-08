@@ -157,23 +157,38 @@ public partial class NightLedgerScreen : CanvasLayer
         outerMargin.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         outerMargin.AddThemeConstantOverride("margin_left", 40);
         outerMargin.AddThemeConstantOverride("margin_right", 40);
-        outerMargin.AddThemeConstantOverride("margin_top", 32);
-        outerMargin.AddThemeConstantOverride("margin_bottom", 32);
+        // Tight, because the panel now expands to fill what is left and
+        // every pixel here comes straight off the scroll region.
+        outerMargin.AddThemeConstantOverride("margin_top", 16);
+        outerMargin.AddThemeConstantOverride("margin_bottom", 16);
         _root.AddChild(outerMargin);
 
-        var centre = new CenterContainer { Name = "Centre" };
+        // Centred horizontally by expanding spacers, not by a CenterContainer.
+        //
+        // A CenterContainer sizes its child to the child's *minimum*, so the
+        // panel could never grow taller than its contents demanded no matter
+        // how much room the window had. The scroll region was therefore fixed
+        // at its 460px minimum at every resolution, and the Standing section
+        // — reputation, heat, public feeling — sat permanently below the fold
+        // behind a thin scrollbar most players would never notice.
+        var centre = new HBoxContainer { Name = "Centre" };
         outerMargin.AddChild(centre);
+
+        centre.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
 
         var panel = new PanelContainer { Name = "Panel" };
         panel.CustomMinimumSize = new Vector2(680f, 0f);
+        panel.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
         panel.AddThemeStyleboxOverride("panel", MakePanelStyle());
         centre.AddChild(panel);
+
+        centre.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
 
         var innerMargin = new MarginContainer { Name = "InnerMargin" };
         innerMargin.AddThemeConstantOverride("margin_left", 30);
         innerMargin.AddThemeConstantOverride("margin_right", 30);
-        innerMargin.AddThemeConstantOverride("margin_top", 24);
-        innerMargin.AddThemeConstantOverride("margin_bottom", 24);
+        innerMargin.AddThemeConstantOverride("margin_top", 18);
+        innerMargin.AddThemeConstantOverride("margin_bottom", 18);
         panel.AddChild(innerMargin);
 
         var body = new VBoxContainer { Name = "Body" };
@@ -191,7 +206,11 @@ public partial class NightLedgerScreen : CanvasLayer
         body.AddChild(MakeRule());
 
         var scroll = new ScrollContainer { Name = "Scroll" };
-        scroll.CustomMinimumSize = new Vector2(0f, 460f);
+
+        // Low minimum, because the panel now expands: this is the floor for a
+        // short window, not the height it always renders at. Leaving it at
+        // 460 would force the panel taller than a 720p screen can show.
+        scroll.CustomMinimumSize = new Vector2(0f, 200f);
         scroll.SizeFlagsVertical = Control.SizeFlags.ExpandFill;
         scroll.HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled;
         body.AddChild(scroll);

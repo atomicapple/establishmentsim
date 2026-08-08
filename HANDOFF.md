@@ -223,11 +223,18 @@ invisible window.
    stops ticking. `ScreenshotCapture` silently never fired on modal screens
    until it was set to `Always`.
 
-4. **`.glb` files here have no usable `.import` sidecars.** `GD.Load` cannot
+4. **`CenterContainer` sizes its child to the child's *minimum*.** It will
+   never let a panel grow into available space, however much there is. The
+   Ledger was centred with one, so its scroll region stayed at its 460px
+   minimum at every resolution and the Standing section sat permanently below
+   the fold. Centre with an `HBoxContainer` and two `ExpandFill` spacers
+   instead, and set `SizeFlagsVertical = ExpandFill` on the panel.
+
+5. **`.glb` files here have no usable `.import` sidecars.** `GD.Load` cannot
    see them. Use `GltfDocument` + `AppendFromBuffer`. Parse once and
    `Duplicate()` — these are 50–60 MB files.
 
-5. **A `const` cannot be a ceiling.** `FurnitureSlotsPerTile` had to become a
+6. **A `const` cannot be a ceiling.** `FurnitureSlotsPerTile` had to become a
    static property for licences to raise it.
 
 ---
@@ -442,16 +449,7 @@ release regardless of where the files live. It needs a tool that is not in
 the repo (`gltf-transform` or similar), so it needs a decision about
 installing one.
 
-### 2. The Ledger's Standing section is below the fold
-
-`NightLedgerScreen` wraps its panel in a `CenterContainer`, which sizes a
-child to its minimum — so the panel never grows with the window and the
-scroll region is fixed. At any resolution the "Standing" row (reputation,
-heat, public feeling) sits below the fold and is reachable only by scrolling
-a thin, easily-missed bar. Three stats there now rather than two, so it
-matters more than it did.
-
-### 3. Public sentiment — WIRED, note kept for the reasoning
+### 2. Public sentiment — WIRED, note kept for the reasoning
 
 It used to move through exactly two things — crisis choices and
 `HireStrikebreakers` — so nothing that happened during a night touched it and
