@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://GameScene.cs" id="1_gamescene"]
+
+[node name="GameScene" type="Node"]
+script = ExtResource("1_gamescene")
+ScreenshotAfterSeconds = 5.0
+CaptureLicencesPanel = true

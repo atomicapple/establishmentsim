@@ -49,6 +49,9 @@ public partial class GameScene : Node
     /// <summary>Capture runs only: open the Panderer's Code panel.</summary>
     [Export] public bool CapturePolicyPanel { get; set; }
 
+    /// <summary>Capture runs only: open the licences panel.</summary>
+    [Export] public bool CaptureLicencesPanel { get; set; }
+
     /// <summary>
     /// Capture runs only: play this many compressed nights, then open the
     /// patrons book. Clients need repeat visits before they are worth
@@ -77,6 +80,7 @@ public partial class GameScene : Node
     private InfluencePanel _influence;
     private PolicyPanel _policy;
     private PatronsPanel _patrons;
+    private LicencesPanel _licences;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -161,6 +165,9 @@ public partial class GameScene : Node
         _patrons = new PatronsPanel { Name = "PatronsPanel" };
         panelLayer.AddChild(MakeSidePanelHost("PatronsHost", PatronsPanel.PanelWidth, _patrons));
 
+        _licences = new LicencesPanel { Name = "LicencesPanel" };
+        panelLayer.AddChild(MakeSidePanelHost("LicencesHost", LicencesPanel.PanelWidth, _licences));
+
         _screenshot = new ScreenshotCapture
         {
             Name = "ScreenshotCapture",
@@ -238,6 +245,9 @@ public partial class GameScene : Node
 
         _patrons.OnCloseRequested += () => _patrons.Visible = false;
 
+        _licences.OnCloseRequested += () => _licences.Visible = false;
+        _licences.OnLicenceApplied += _ => _hud?.RefreshAll();
+
         // The HUD's roster controls open the staff panel.
         _hud.OnStaffSelected += _ => ToggleStaffPanel(true);
     }
@@ -271,6 +281,8 @@ public partial class GameScene : Node
 
     private void TogglePatronsPanel(bool show) => ShowOnly(show ? _patrons : null);
 
+    private void ToggleLicencesPanel(bool show) => ShowOnly(show ? _licences : null);
+
     /// <summary>
     /// A signed policy changes standing modifiers across the whole house, so
     /// refresh everything that reads them.
@@ -293,11 +305,13 @@ public partial class GameScene : Node
         _influence.Visible = panel == _influence;
         _policy.Visible = panel == _policy;
         _patrons.Visible = panel == _patrons;
+        _licences.Visible = panel == _licences;
 
         if (panel == _staff) _staff.Refresh();
         else if (panel == _influence) _influence.Refresh();
         else if (panel == _policy) _policy.Refresh();
         else if (panel == _patrons) _patrons.Refresh();
+        else if (panel == _licences) _licences.Refresh();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -321,6 +335,10 @@ public partial class GameScene : Node
 
             case Key.B:
                 TogglePatronsPanel(!_patrons.Visible);
+                break;
+
+            case Key.L:
+                ToggleLicencesPanel(!_licences.Visible);
                 break;
 
             case Key.Escape:
@@ -358,6 +376,7 @@ public partial class GameScene : Node
 
         _policy.Bind(_boot.Policies);
         _patrons.Bind(_boot.Regulars);
+        _licences.Bind(_boot.Licences);
 
         var night = _boot.Night;
         night.OnEncounterStarted += OnEncounterStarted;
@@ -423,6 +442,12 @@ public partial class GameScene : Node
         if (CapturePolicyPanel)
         {
             TogglePolicyPanel(true);
+            return;
+        }
+
+        if (CaptureLicencesPanel)
+        {
+            ToggleLicencesPanel(true);
             return;
         }
 
