@@ -342,7 +342,16 @@ public partial class HeatSystem : Node, ISaveableSystem
 
         // Effectiveness decays as heat rises (harder to bribe when heat is high)
         float effectiveness = Mathf.Clamp(1.0f - (_heat / 120.0f), 0.1f, 1.0f);
-        float heatReduction = (float)(cost / 50.0) * effectiveness;
+
+        // A crackdown doubles what a captain wants, which is the same thing as
+        // halving what a given sum buys. BribeCostMultiplier had no consumers
+        // anywhere, so the phase that exists to make bribery expensive did not
+        // touch the price of a bribe — and the city chip now states the
+        // multiplier to the player, so it had to become true.
+        var macro = GetTree()?.Root?.FindChild("MacroEconomyEngine", true, false) as MacroEconomyEngine;
+        float priceMultiplier = Mathf.Max(0.1f, macro?.BribeCostMultiplier ?? 1f);
+
+        float heatReduction = (float)(cost / 50.0) * effectiveness / priceMultiplier;
 
         Heat -= heatReduction;
 

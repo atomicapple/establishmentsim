@@ -526,6 +526,10 @@ public partial class GameHud : CanvasLayer
 
         row.AddChild(MakeSeparator());
 
+        BuildCityChip(row);
+
+        row.AddChild(MakeSeparator());
+
         BuildPanelRail(row);
 
         row.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
@@ -555,6 +559,40 @@ public partial class GameHud : CanvasLayer
 
         _satisfactionValue = HudStyle.MakeLabel("5.0", 17, IsoTheme.TextPrimary);
         meterText.AddChild(_satisfactionValue);
+    }
+
+    /// <summary>
+    /// City conditions.
+    ///
+    /// The macro engine swings footfall between ×0.4 and ×1.4 and holds it
+    /// there for 30–90 days, which is the single largest force on revenue in
+    /// the game — and it was completely invisible. A 50-night run watched
+    /// takings fall from $850 a night to $150 with nothing anywhere in the
+    /// interface naming the cause. Both signals that exist to tell the player
+    /// (OnPhaseChanged, OnPhaseWarning) had no listeners.
+    /// </summary>
+    private void BuildCityChip(HBoxContainer row)
+    {
+        _cityChip = new Button { Text = "The city", Flat = false };
+        HudStyle.StyleButton(_cityChip, IsoTheme.GoldDim, 12, 12, 12);
+        row.AddChild(_cityChip);
+    }
+
+    private Button _cityChip;
+
+    /// <summary>
+    /// Report the city's mood. <paramref name="detail"/> becomes the tooltip
+    /// and should say what it does to trade, not merely name the phase.
+    /// </summary>
+    public void SetCityPhase(string caption, string detail, bool adverse)
+    {
+        if (_cityChip == null) return;
+
+        _cityChip.Text = caption;
+        _cityChip.TooltipText = detail;
+
+        HudStyle.StyleButton(_cityChip,
+            adverse ? IsoTheme.Warning : IsoTheme.GoldDim, 12, 12, 12);
     }
 
     /// <summary>

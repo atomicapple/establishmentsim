@@ -42,6 +42,8 @@ public partial class BalanceHarness : Node
         public float AvgStress;
         public float Heat;
         public int RosterSize;
+        public float Reputation;
+        public float Footfall;
     }
 
     private readonly Dictionary<EncounterQuality, int> _qualityTotals = new();
@@ -121,7 +123,9 @@ public partial class BalanceHarness : Node
             AvgLoyalty = roster.GetAverageLoyalty(),
             AvgStress = roster.GetAverageStress(),
             Heat = gsm.Heat,
-            RosterSize = roster.Count
+            RosterSize = roster.Count,
+            Reputation = gsm.Reputation,
+            Footfall = _boot.Macro?.FootfallMultiplier ?? 1f
         });
 
         if (_played >= Nights)
@@ -136,14 +140,14 @@ public partial class BalanceHarness : Node
     private void Report()
     {
         GD.Print("\n─── Per night ───");
-        GD.Print(" N |  served |  revenue |  commis |  upkeep |   salary |      cash |  appt | stress | loyal | heat | roster");
+        GD.Print(" N |  served |  revenue |  commis |  upkeep |   salary |      cash |  appt | stress | loyal | heat | roster |  rep | foot");
 
         foreach (var s in _samples)
         {
             GD.Print($"{s.Night,2} | {s.Served,3} ({s.TurnedAway,1}) | " +
                      $"{s.Revenue,8:F0} | {s.Commission,7:F0} | {s.Upkeep,7:F0} | {s.Salaries,8:F0} | " +
                      $"{s.CashAfter,9:F0} | {s.AvgAppointment,5:F1} | {s.AvgStress,6:F1} | " +
-                     $"{s.AvgLoyalty,5:F1} | {s.Heat,4:F0} | {s.RosterSize,6}");
+                     $"{s.AvgLoyalty,5:F1} | {s.Heat,4:F0} | {s.RosterSize,6} | {s.Reputation,4:F0} | {s.Footfall,4:F2}");
         }
 
         var totalRevenue = _samples.Sum(s => s.Revenue);

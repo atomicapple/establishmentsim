@@ -76,6 +76,12 @@ public partial class GameScene : Node
     /// </summary>
     [Export] public float CaptureCameraSize { get; set; }
 
+    /// <summary>
+    /// Capture runs only: put the city into a police crackdown, so the shot
+    /// shows the adverse city chip. The organic route waits 30–90 days.
+    /// </summary>
+    [Export] public bool CaptureCrackdown { get; set; }
+
     /// <summary>Seconds before an automatic screenshot. Zero disables it.</summary>
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
@@ -406,6 +412,51 @@ public partial class GameScene : Node
         }
     }
 
+    // ── The city ───────────────────────────────────────────────────────
+
+    private void RefreshCityChip()
+    {
+        var macro = _boot?.Macro;
+        if (macro == null || _hud == null) return;
+
+        _hud.SetCityPhase(macro.GetShortCaption(), macro.GetPlainSummary(), macro.IsAdverse);
+    }
+
+    private void OnCityPhaseChanged(int oldPhase, int newPhase, string phaseName)
+    {
+        RefreshCityChip();
+
+        // Worth an alert as well as a chip: this is the moment the house's
+        // takings change by up to two thirds, through no decision of the
+        // player's. The alert states the consequence rather than repeating
+        // the chip's caption — two chips saying the same words is noise.
+        var macro = _boot?.Macro;
+        if (macro?.IsAdverse == true)
+        {
+            var drop = Mathf.RoundToInt((1f - macro.FootfallMultiplier) * 100f);
+
+            _hud?.SetStatusChip(HudTool.Alert,
+                drop > 0 ? $"Custom down {drop}%" : "Police watching", true);
+        }
+
+        GD.Print($"[GameScene] The city turned: {phaseName}.");
+    }
+
+    /// <summary>
+    /// The engine warns at 80% through a phase. Nothing listened, so the
+    /// countdown that exists specifically to let a player prepare had never
+    /// reached one.
+    /// </summary>
+    private void OnCityPhaseWarning(int daysRemaining)
+    {
+        RefreshCityChip();
+
+        _hud?.SetStatusChip(HudTool.Info,
+            $"City turns in ~{daysRemaining}d", true);
+
+        GD.Print($"[GameScene] City conditions change in about {daysRemaining} days.");
+    }
+
     /// <summary>Repaint the dollhouse after a purchase or sale changes a room.</summary>
     private void OnDecorateRoomChanged(int x, int y, int floor)
     {
@@ -437,6 +488,18 @@ public partial class GameScene : Node
         _patrons.Bind(_boot.Regulars);
         _licences.Bind(_boot.Licences);
         _union.Bind(_boot.Union);
+
+        // Both macro signals had no listeners, so the largest single force on
+        // revenue in the game was invisible: a crackdown quarters the footfall
+        // for a month and nothing said so.
+        if (_boot.Macro != null)
+        {
+            _boot.Macro.OnPhaseChanged += OnCityPhaseChanged;
+            _boot.Macro.OnPhaseWarning += OnCityPhaseWarning;
+            if (CaptureCrackdown) _boot.Macro.ForcePhase(MacroPhase.PoliceCrackdown);
+
+            RefreshCityChip();
+        }
 
         // The strike fired into an empty room before this — the signal had no
         // listeners anywhere, so the house could go on strike in silence.
@@ -759,6 +822,7 @@ public partial class GameScene : Node
         _boot.AutoAssignStaff();
 
         RefreshStaffPawns();
+        RefreshCityChip();
         _hud.RefreshAll();
     }
 

@@ -188,6 +188,57 @@ public partial class MacroEconomyEngine : Node, ISaveableSystem
         return EnforcementStrictness;
     }
 
+    // ── For the interface ──────────────────────────────────────────────
+
+    /// <summary>
+    /// A short caption for the top bar. Names the condition and, when trade
+    /// is affected, says by how much — a phase name on its own does not
+    /// explain a halved takings line.
+    /// </summary>
+    public string GetShortCaption()
+    {
+        var name = _currentPhase switch
+        {
+            MacroPhase.Boom => "Boom",
+            MacroPhase.Recession => "Recession",
+            MacroPhase.Stagnation => "Quiet city",
+            MacroPhase.PoliceCrackdown => "Crackdown",
+            _ => _currentPhase.ToString()
+        };
+
+        return Mathf.IsEqualApprox(FootfallMultiplier, 1f)
+            ? name
+            : $"{name} · trade ×{FootfallMultiplier:F1}";
+    }
+
+    /// <summary>True while the city is working against the house.</summary>
+    public bool IsAdverse => FootfallMultiplier < 1f || EnforcementStrictness > 0.6f;
+
+    /// <summary>
+    /// The tooltip. Says what the condition does and how long it has left,
+    /// because the useful question during a crackdown is "how long do I have
+    /// to survive this", not "what is it called".
+    /// </summary>
+    public string GetPlainSummary()
+    {
+        var lines = new List<string>
+        {
+            GetOutlookText(),
+            "",
+            $"Clients through the door: ×{FootfallMultiplier:F1}",
+            $"What they will spend: ×{ClientSpendMultiplier:F1}",
+            $"Cost of a bribe: ×{BribeCostMultiplier:F1}",
+            $"Police attention: {EnforcementStrictness:P0}",
+            "",
+            DaysRemaining > 0
+                ? $"Day {_daysInPhase} of {_phaseDurationDays}. Around " +
+                  $"{DaysRemaining} left before the city turns again."
+                : "This is about to change."
+        };
+
+        return string.Join('\n', lines);
+    }
+
     /// <summary>Get a human-readable economic report.</summary>
     public string GetEconomicReport()
     {

@@ -35,11 +35,14 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 # The game, windowed
 ./Godot_v4.7.1-stable_win64_console.exe --path . --resolution 1600x900 main.tscn
 
-# Smoke test — 132 checks, the main safety net
+# Smoke test — 157 checks, the main safety net
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . smoke_test.tscn
 
-# Balance harness — 20 simulated nights + a five-point verdict
+# Balance harness — 20 simulated nights + a six-point verdict
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . balance.tscn
+
+# The same, over 50 nights — where slow drifts become visible
+./Godot_v4.7.1-stable_win64_console.exe --headless --path . balance_long.tscn
 ```
 
 **Always run both before committing.** The smoke test catches wiring; the
@@ -65,7 +68,7 @@ Self-driving screenshot runs. Each sets flags on `GameScene` and quits.
 `main_capture` · `closeup_capture` · `ledger_capture` · `staff_capture` ·
 `hiring_capture` · `influence_capture` · `policy_capture` ·
 `patrons_capture` · `licences_capture` · `union_capture` ·
-`union_strike_capture`
+`union_strike_capture` · `crackdown_capture`
 
 Output lands in
 `C:\Users\tobia\AppData\Roaming\Godot\app_userdata\Establishment Simulator\screenshots\`.
@@ -258,11 +261,24 @@ opposite directions.
 
 The harness plays **naively** — auto-assigns, never hires, never buys, never
 bribes. It measures the floor, not skilled play. What the 50-night run shows
-is that the floor **stagnates rather than dies**: heat climbs to ~60 and
-stays there because nobody bribes, footfall follows it down, and revenue
-falls from ~$850 to ~$150 a night while the house stays solvent. Furniture
-wear is *not* the long-run pressure — 2.8 points of Appointment over 50
-nights is nothing. Heat is.
+is that the floor **stagnates rather than dies**, and the cause is the macro
+phase, not furniture and not heat:
+
+```
+night 32   the city flips to PoliceCrackdown
+           footfall ×0.4, client spend ×0.7, for 32 days
+night 33+  served falls 7-8 → 2-3, revenue $850 → $150
+           reputation 83 → 25, and it has no passive recovery
+```
+
+Furniture wear moves Appointment 2.8 points over 50 nights — nothing. No
+raid ever fires. The roster never shrinks. It is one macro phase, and it was
+invisible until the city chip was built.
+
+Reputation having no recovery term is the shape of a real problem: arrivals
+scale with reputation, so a shock that lowers it lowers the number of chances
+to earn it back. Nothing has been changed about it — it is a design call, not
+a bug, and it belongs to the person who owns the design.
 
 ---
 
@@ -284,27 +300,30 @@ characters.
    stdout — it hangs permanently. Needs the fallback path to be the primary
    one. It is currently **not instantiated**, so it is latent, not live.
 
-2. **Heat has no answer in naive play.** The 50-night run shows heat settling
-   at ~60 and staying, which halves footfall for the rest of the campaign.
-   Bribes are the intended response and the influence panel exists, so this
-   may be working as designed — but nothing in the interface *tells* the
-   player that the falling client count and the heat number are the same
-   fact. A visible causal link is worth more here than a number change.
+2. **Reputation has no recovery term.** Arrivals scale with it, so a shock
+   that lowers reputation lowers the number of chances to earn it back. Over
+   50 nights it falls 83 → 25 and never returns. Whether that is a death
+   spiral or the intended ratchet is a design call, not a bug — but it is the
+   single largest unaddressed force in the long game.
 
-3. **`RollReturningClient` iterates a `Dictionary<string, Patron>`** keyed by
+3. **`PropertyValueMultiplier` has no consumers.** `RealEstateMarket` is the
+   obvious one; the macro phase is supposed to move district prices and does
+   not. (`BribeCostMultiplier` had the same problem and is now wired, because
+   the city chip states it to the player.)
+
+4. **`ClientQueueManager` has no callers at all.** ~300 lines including a
+   fight system with its own reputation penalty, none of it reachable.
+   `NightDirector` does the queueing. Delete it or wire the fights.
+
+5. **The three `HudTool` chips** (Cleaning, Alert, Info) emit
+   `OnToolRequested` and nothing consumes it. The Alert chip is written to,
+   but pressing any of the three does nothing.
+
+6. **`RollReturningClient` iterates a `Dictionary<string, Patron>`** keyed by
    Guid. Iteration order is stable within a process but is not part of the
-   seed, so patron selection is the one part of a "deterministic" run that
-   could still drift if the dictionary is ever rebuilt in a different order.
-   Not currently observed; worth an ordered list if it ever is.
-
-4. **Save/load has never been round-tripped against determinism.** A restored
-   world re-seeds from `WorldSeed`, but the streams have already advanced —
-   so a save and a reload will not replay identically. Only matters if
-   reproducible replays are ever wanted.
-
-5. **The three unused `HudTool` chips** (Cleaning, Alert, Info) are wired to
-   `OnToolRequested` and nothing consumes it. Eighth-and-ninth instance of
-   the repo's defining pattern, but harmless — they are decoration.
+   seed, so it is the one part of a "deterministic" run that could still
+   drift if the dictionary were ever rebuilt in a different order. Not
+   currently observed; an ordered list would settle it.
 
 ---
 

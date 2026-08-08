@@ -135,6 +135,7 @@ public partial class SmokeTest : Node
             RunNarrativeCheck();
             RunLicenceCheck();
             RunUnionCheck();
+            RunCityCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -847,6 +848,70 @@ public partial class SmokeTest : Node
         Check("the house can always settle", !union.StrikeActive);
 
         GD.Print($"  all three resolutions exercised — {union}");
+    }
+
+    /// <summary>
+    /// The city's phase and its consequences.
+    ///
+    /// The macro engine computes six multipliers and, until the city chip was
+    /// built, two of them had no consumer at all — including the one a police
+    /// crackdown uses to make bribery expensive. A phase whose stated effects
+    /// do not happen is worse than no phase, because the interface now
+    /// promises them.
+    /// </summary>
+    private void RunCityCheck()
+    {
+        GD.Print("\n── City conditions ──");
+
+        var macro = _boot.Macro;
+        var heat = _boot.Heat;
+        var gsm = GameStateManager.Instance;
+
+        Check("macro engine present", macro != null);
+        if (macro == null || heat == null || gsm == null) return;
+
+        // ── The chip says something usable ─────────────────────────────
+        Check("the city has a caption", !string.IsNullOrWhiteSpace(macro.GetShortCaption()));
+        Check("the caption names the effect on trade when there is one",
+            Mathf.IsEqualApprox(macro.FootfallMultiplier, 1f) ||
+                macro.GetShortCaption().Contains('×'));
+
+        var summary = macro.GetPlainSummary();
+        Check("the tooltip explains the effect on trade", summary.Contains("through the door"));
+        Check("the tooltip says how long it lasts",
+            summary.Contains("left before") || summary.Contains("about to change"));
+
+        // ── A crackdown must actually cost the player ──────────────────
+        macro.ForcePhase(MacroPhase.Stagnation);
+        gsm.Cash = 100000;
+        heat.RestoreState(new System.Text.Json.Nodes.JsonObject { ["heat"] = 60f });
+
+        var quietHeat = gsm.Heat;
+        heat.BribePrecinctCaptain(1000);
+        var boughtQuiet = quietHeat - gsm.Heat;
+
+        macro.ForcePhase(MacroPhase.PoliceCrackdown);
+        Check("a crackdown is adverse", macro.IsAdverse);
+        Check("a crackdown thins the crowd", macro.FootfallMultiplier < 1f);
+
+        heat.RestoreState(new System.Text.Json.Nodes.JsonObject { ["heat"] = 60f });
+        var crackdownHeat = gsm.Heat;
+        heat.BribePrecinctCaptain(1000);
+        var boughtCrackdown = crackdownHeat - gsm.Heat;
+
+        Check($"the same bribe buys less under a crackdown " +
+              $"({boughtQuiet:F1} → {boughtCrackdown:F1} heat)",
+            boughtCrackdown < boughtQuiet);
+
+        // ── And a boom must actually help ──────────────────────────────
+        macro.ForcePhase(MacroPhase.Boom);
+        Check("a boom is not adverse", !macro.IsAdverse);
+        Check("a boom brings more people in", macro.FootfallMultiplier > 1f);
+
+        macro.ForcePhase(MacroPhase.Stagnation);
+
+        GD.Print($"  {macro.GetShortCaption()} — bribe bought {boughtQuiet:F1} " +
+                 $"heat quiet, {boughtCrackdown:F1} under a crackdown");
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────
