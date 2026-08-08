@@ -45,6 +45,9 @@ public partial class GameScene : Node
     /// <summary>Which staff tab a capture run opens. 0 = Roster, 1 = Hiring.</summary>
     [Export] public int CaptureStaffTab { get; set; }
 
+    /// <summary>Capture runs only: open the influence panel.</summary>
+    [Export] public bool CaptureInfluencePanel { get; set; }
+
     /// <summary>Seconds before an automatic screenshot. Zero disables it.</summary>
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
@@ -56,6 +59,7 @@ public partial class GameScene : Node
     private NightLedgerScreen _ledger;
     private DecoratePanel _decorate;
     private StaffPanel _staff;
+    private InfluencePanel _influence;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -156,6 +160,9 @@ public partial class GameScene : Node
         _staff = new StaffPanel { Name = "StaffPanel" };
         panelLayer.AddChild(MakeSidePanelHost("StaffHost", StaffPanelWidth, _staff));
 
+        _influence = new InfluencePanel { Name = "InfluencePanel" };
+        panelLayer.AddChild(MakeSidePanelHost("InfluenceHost", InfluencePanelWidth, _influence));
+
         _screenshot = new ScreenshotCapture
         {
             Name = "ScreenshotCapture",
@@ -167,6 +174,7 @@ public partial class GameScene : Node
 
     private const float DecoratePanelWidth = 360f;
     private const float StaffPanelWidth = 400f;
+    private const float InfluencePanelWidth = 380f;
 
     /// <summary>
     /// Wrap a side panel in a host Control that defines the left column.
@@ -224,6 +232,9 @@ public partial class GameScene : Node
         _staff.OnCloseRequested += () => _staff.Visible = false;
         _staff.OnRosterChanged += OnRosterChanged;
 
+        _influence.OnCloseRequested += () => _influence.Visible = false;
+        _influence.OnAllocationChanged += (_, _) => _hud?.RefreshAll();
+
         // The HUD's roster controls open the staff panel.
         _hud.OnStaffSelected += _ => ToggleStaffPanel(true);
     }
@@ -249,14 +260,22 @@ public partial class GameScene : Node
     /// Show or hide the staff panel. The two left-hand panels are mutually
     /// exclusive because they occupy the same column.
     /// </summary>
-    private void ToggleStaffPanel(bool show)
+    private void ToggleStaffPanel(bool show) => ShowOnly(show ? _staff : null);
+
+    private void ToggleInfluencePanel(bool show) => ShowOnly(show ? _influence : null);
+
+    /// <summary>
+    /// Show one left-column panel and hide the rest. They all occupy the same
+    /// space, so opening one has to close the others.
+    /// </summary>
+    private void ShowOnly(Control panel)
     {
-        _staff.Visible = show;
-        if (show)
-        {
-            _decorate.Visible = false;
-            _staff.Refresh();
-        }
+        _decorate.Visible = panel == _decorate;
+        _staff.Visible = panel == _staff;
+        _influence.Visible = panel == _influence;
+
+        if (panel == _staff) _staff.Refresh();
+        else if (panel == _influence) _influence.Refresh();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -265,14 +284,17 @@ public partial class GameScene : Node
 
         switch (key.Keycode)
         {
-            // No HUD affordance opens the roster yet, so it is on a key.
+            // No HUD affordance opens these yet, so they are on keys.
             case Key.S:
                 ToggleStaffPanel(!_staff.Visible);
                 break;
 
+            case Key.I:
+                ToggleInfluencePanel(!_influence.Visible);
+                break;
+
             case Key.Escape:
-                _staff.Visible = false;
-                _decorate.Visible = false;
+                ShowOnly(null);
                 break;
         }
     }
@@ -296,6 +318,11 @@ public partial class GameScene : Node
         _boot.Recruitment.OnHireRejected += OnActionRejected;
         _decorate.Bind(_boot.Catalog, _boot.Venue);
         _staff.Bind(_boot.Recruitment);
+
+        _influence.Bind(
+            GetTree()?.Root?.FindChild("PoliticalInfluenceSystem", true, false)
+                as PoliticalInfluenceSystem,
+            _boot.Venue);
 
         var night = _boot.Night;
         night.OnEncounterStarted += OnEncounterStarted;
@@ -381,6 +408,12 @@ public partial class GameScene : Node
             return;
         }
 
+        if (CaptureInfluencePanel)
+        {
+            ToggleInfluencePanel(true);
+            return;
+        }
+
         if (CaptureStaffPanel)
         {
             ToggleStaffPanel(true);
@@ -462,7 +495,7 @@ public partial class GameScene : Node
         // the furniture shop, and therefore the only way a player reaches the
         // style-coherence mechanic at all.
         _decorate.ShowRoom(tile);
-        _decorate.Visible = true;
+        ShowOnly(_decorate);
 
         GD.Print($"[GameScene] Decorating {room.RoomName} — " +
                  $"appointment {room.AppointmentScore:F0}, {room.Furniture.Count} pieces.");
