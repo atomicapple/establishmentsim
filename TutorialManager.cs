@@ -147,10 +147,16 @@ public partial class TutorialManager : Node
         if (heat != null)
             heat.OnBribePaid += OnBribePaid;
 
-        // Upgrade purchase: ResearchTreeUI.OnResearchStarted
-        var research = GetTree()?.Root?.FindChild("ResearchTreeUI", true, false) as ResearchTreeUI;
-        if (research != null)
-            research.OnResearchStarted += OnResearchStarted;
+        // Upgrade purchase: the research tree was deleted — every one of its
+        // fifteen nodes duplicated a system that already works and is
+        // reachable. FacilityLicences replaces it, and the tutorial hooks
+        // onto that instead.
+        var licences = GetTree()?.Root?.FindChild("FacilityLicences", true, false)
+            as FacilityLicences;
+
+        if (licences != null)
+            licences.OnLicenceStarted += (id, _) =>
+                OnResearchStarted(id, FacilityLicences.Get(id)?.Name ?? id);
     }
 
     // ── State Machine ──────────────────────────────────────────────────

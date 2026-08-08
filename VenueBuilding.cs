@@ -166,7 +166,14 @@ public partial class RoomModule : Resource
     public int FurnitureCapacity => Mathf.Max(2, Area * FurnitureSlotsPerTile);
 
     /// <summary>Furniture slots granted per floor tile.</summary>
-    public const int FurnitureSlotsPerTile = 2;
+    /// <summary>
+    /// Furnishing slots each floor tile provides.
+    ///
+    /// Static rather than const because <see cref="FacilityLicences"/> raises
+    /// it — a const is baked in at compile time and cannot be a ceiling the
+    /// player moves.
+    /// </summary>
+    public static int FurnitureSlotsPerTile { get; set; } = 2;
 
     /// <summary>Furniture tiles currently consumed.</summary>
     public int UsedFurnitureArea => Furniture.Sum(f => f?.Area ?? 0);

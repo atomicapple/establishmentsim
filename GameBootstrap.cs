@@ -48,6 +48,7 @@ public partial class GameBootstrap : Node
     public FurnitureCatalog Catalog { get; private set; }
     public CharacterLibrary Characters { get; private set; }
     public RegularsRegistry Regulars { get; private set; }
+    public FacilityLicences Licences { get; private set; }
 
     private readonly RandomNumberGenerator _rng = new();
 
@@ -82,6 +83,7 @@ public partial class GameBootstrap : Node
         Add<SyndicateRivalAI>("SyndicateRivalAI");
         Add<NarrativeArcTracker>("NarrativeArcTracker");
         Regulars = Add<RegularsRegistry>("RegularsRegistry");
+        Licences = Add<FacilityLicences>("FacilityLicences");
         Add<RealEstateMarket>("RealEstateMarket");
 
         Venue = Add<VenueBuilding>("VenueBuilding");

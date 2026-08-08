@@ -133,6 +133,7 @@ public partial class SmokeTest : Node
             RunRegularsCheck();
             RunAmbitionCheck();
             RunNarrativeCheck();
+            RunLicenceCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -683,6 +684,96 @@ public partial class SmokeTest : Node
             macro == null || macro.CurrentPhase == MacroPhase.PoliceCrackdown);
 
         GD.Print($"  federal: cash {cashBefore:F0} → {gsm.Cash:F0}, phase {macro?.CurrentPhase}");
+    }
+
+    // ── Facility licences ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Licences are the only thing that raises a ceiling, so what matters is
+    /// that the ceiling actually moves and the game notices.
+    ///
+    /// The headline case: the catalogue stocked tiers 1–3 while FurnitureItem
+    /// defines five, so the top two tiers were generated, scored by the
+    /// appointment formula, and completely unbuyable. This proves a licence
+    /// opens them.
+    /// </summary>
+    private void RunLicenceCheck()
+    {
+        GD.Print("\n── Facility licences ──");
+
+        var licences = _boot.Licences;
+        var catalog = _boot.Catalog;
+        var roster = StaffRoster.Instance;
+        var gsm = GameStateManager.Instance;
+
+        Check("licences system present", licences != null);
+        if (licences == null || catalog == null || roster == null || gsm == null) return;
+
+        gsm.Cash = 100000;
+
+        // The old research tree is gone, not hidden.
+        Check("the research tree is deleted",
+            GetTree()?.Root?.FindChild("ResearchTreeUI", true, false) == null);
+
+        // ── Ceilings start where they started ──────────────────────────
+        var room = _boot.Venue.GetRoom(new Vector3I(0, 0, 1));
+        var capacityBefore = room?.FurnitureCapacity ?? 0;
+
+        Check("catalogue starts capped at tier 3", catalog.MaxAvailableTier == 3);
+        Check("tier 5 furniture is unbuyable at the start",
+            catalog.GetOffers(room).All(o => o.Item.Tier <= 3));
+
+        // ── Prerequisites are enforced ─────────────────────────────────
+        Check("a second-tier licence needs the first",
+            !licences.CanApply("craft_2", out _));
+
+        // ── Apply, wait, and be granted ────────────────────────────────
+        Check("the first craft licence can be applied for", licences.Apply("craft_1"));
+        Check("it is not granted immediately", !licences.IsGranted("craft_1"));
+        Check("it is in progress", licences.IsInProgress("craft_1"));
+        Check("applying twice is refused", !licences.Apply("craft_1"));
+
+        var days = FacilityLicences.Get("craft_1").Days;
+        for (var i = 0; i < days; i++) gsm.AdvanceDay();
+
+        Check("it is granted once the wait elapses", licences.IsGranted("craft_1"));
+        Check("the catalogue now stocks tier 4", catalog.MaxAvailableTier == 4);
+        Check("tier 4 furniture is on sale",
+            catalog.GetOffers(room).Any(o => o.Item.Tier == 4));
+
+        GD.Print($"  craft_1 granted after {days} days — catalogue now tier {catalog.MaxAvailableTier}");
+
+        // ── The second tier unlocks behind it ──────────────────────────
+        Check("the second craft licence is now available", licences.CanApply("craft_2", out _));
+
+        // ── Other lines move their own ceilings ────────────────────────
+        var rosterCapBefore = roster.RosterCap;
+        licences.Apply("house_1");
+        for (var i = 0; i < FacilityLicences.Get("house_1").Days; i++) gsm.AdvanceDay();
+
+        Check("the house licence raises the roster cap", roster.RosterCap > rosterCapBefore);
+
+        licences.Apply("space_1");
+        for (var i = 0; i < FacilityLicences.Get("space_1").Days; i++) gsm.AdvanceDay();
+
+        var capacityAfter = _boot.Venue.GetRoom(new Vector3I(0, 0, 1))?.FurnitureCapacity ?? 0;
+        Check($"the fittings permit raises room capacity ({capacityBefore} → {capacityAfter})",
+            capacityAfter > capacityBefore);
+
+        GD.Print($"  roster cap {rosterCapBefore} → {roster.RosterCap}, " +
+                 $"room capacity {capacityBefore} → {capacityAfter}");
+
+        // ── Ceilings must survive a reload ─────────────────────────────
+        var captured = licences.CaptureState();
+        catalog.MaxAvailableTier = 3;
+        roster.RosterCap = 6;
+        RoomModule.FurnitureSlotsPerTile = 2;
+
+        licences.RestoreState(captured);
+
+        Check("restoring a save re-applies the ceilings",
+            catalog.MaxAvailableTier == 4 && roster.RosterCap > 6 &&
+            RoomModule.FurnitureSlotsPerTile > 2);
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────
