@@ -73,6 +73,9 @@ public partial class GameScene : Node
     /// <summary>Lobby clients currently drawn, by pawn id.</summary>
     private readonly List<string> _lobbyPawns = new();
 
+    /// <summary>Client pawn accompanying each in-flight encounter, by staff id.</summary>
+    private readonly Dictionary<string, string> _encounterClients = new();
+
     private int _lobbyCounter;
 
     public override void _Ready()
@@ -479,18 +482,42 @@ public partial class GameScene : Node
         var cell = new Vector3I(x, y, floor);
         _encounterCells[staffId] = cell;
 
-        // Move the working staff member into the room, then start the cloud.
-        _pawns.MovePawn(StaffPawnId(staffId), cell);
-        _clouds.StartCloud(staffId, cell, duration);
+        // Move the working staff member into the room.
+        var staffPawn = StaffPawnId(staffId);
+        _pawns.MovePawn(staffPawn, cell);
 
-        // One client leaves the lobby to join them.
-        PopLobbyPawn();
+        // Walk a waiting client up to join them rather than deleting them from
+        // the lobby. The encounter is meant to read as two people meeting, and
+        // a client that simply vanishes loses that entirely.
+        var clientPawn = TakeLobbyPawn();
+        if (clientPawn != null)
+        {
+            _encounterClients[staffId] = clientPawn;
+            _pawns.MovePawn(clientPawn, cell);
+        }
+
+        // The conversation beat: both talk while they walk in and settle,
+        // before the cloud takes over. Rigs without a talk clip fall back to
+        // a neutral pose, so this is safe with the current exports.
+        _pawns.SetPawnState(staffPawn, CharacterAnimation.Talk);
+        if (clientPawn != null) _pawns.SetPawnState(clientPawn, CharacterAnimation.Talk);
+
+        _clouds.StartCloud(staffId, cell, duration);
     }
 
     private void OnEncounterResolved(string staffId, int quality, double payment, int incident)
     {
         _clouds.ResolveCloud(staffId, (EncounterQuality)quality);
         _encounterCells.Remove(staffId);
+
+        // The client leaves; the staff member goes back to standing.
+        if (_encounterClients.TryGetValue(staffId, out var clientPawn))
+        {
+            _pawns.RemovePawn(clientPawn);
+            _encounterClients.Remove(staffId);
+        }
+
+        _pawns.SetPawnState(StaffPawnId(staffId), CharacterAnimation.Idle);
 
         var band = (EncounterQuality)quality;
         if ((EncounterIncident)incident != EncounterIncident.None)
@@ -571,18 +598,27 @@ public partial class GameScene : Node
         return lounge?.GridPosition ?? new Vector3I(0, 0, 0);
     }
 
-    private void PopLobbyPawn()
+    /// <summary>
+    /// Take the longest-waiting client out of the lobby queue without
+    /// destroying its pawn — the caller walks it into a room.
+    /// </summary>
+    private string TakeLobbyPawn()
     {
-        if (_lobbyPawns.Count == 0) return;
+        if (_lobbyPawns.Count == 0) return null;
 
-        _pawns.RemovePawn(_lobbyPawns[0]);
+        var id = _lobbyPawns[0];
         _lobbyPawns.RemoveAt(0);
+        return id;
     }
 
     private void ClearLobbyPawns()
     {
         foreach (var id in _lobbyPawns) _pawns.RemovePawn(id);
         _lobbyPawns.Clear();
+
+        // Clients mid-encounter are not in the queue but still on screen.
+        foreach (var id in _encounterClients.Values) _pawns.RemovePawn(id);
+        _encounterClients.Clear();
     }
 
     // ── Frame update ───────────────────────────────────────────────────
