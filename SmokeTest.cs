@@ -129,6 +129,7 @@ public partial class SmokeTest : Node
             _stage = Stage.Persistence;
             RunCatalogCheck();
             RunExpansionCheck();
+            RunPolicyCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -307,6 +308,69 @@ public partial class SmokeTest : Node
         Check("expansion is blocked by low reputation", repBlocked);
         Check("the refusal names reputation",
             repReason.Contains("reputation", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ── Policy tree ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Walk the Panderer's Code from an unchosen branch up the ladder.
+    ///
+    /// The prerequisite check compared enacted *keys* against a *PolicyName*,
+    /// so nothing past tier 0 could ever unlock and the campaign's defining
+    /// progression was dead. Climbing two tiers here is what proves it.
+    /// </summary>
+    private void RunPolicyCheck()
+    {
+        GD.Print("\n── Panderer's Code ──");
+
+        var policies = _boot.Policies;
+        Check("policy tree present", policies != null);
+        if (policies == null) return;
+
+        Check("no branch is chosen at the start", policies.ActiveBranch == PolicyBranch.None);
+
+        // Tier 0 opens the branch.
+        var first = policies.EnactPolicy("WF0");
+        GD.Print($"  WF0: {first.Message}");
+        Check("tier 0 can be enacted", first.Success);
+        Check("the branch is now Workforce Protection",
+            policies.ActiveBranch == PolicyBranch.WorkforceProtection);
+
+        // The opposing branch must be closed for good.
+        var blocked = policies.EnactPolicy("SE0");
+        Check("the opposing branch is locked out", !blocked.Success);
+
+        // Cooldown gates the next signing, so clear it before climbing.
+        policies.EnactmentCooldownDays = 0;
+
+        var second = policies.EnactPolicy("WF1");
+        GD.Print($"  WF1: {second.Message}");
+        Check("tier 1 unlocks once its prerequisite is enacted", second.Success);
+
+        // Tier 2 also carries a MinDay, so the house has to have been running
+        // a while. Advance past it rather than asserting against the design.
+        GameStateManager.Instance.SetDayCount(40);
+
+        var third = policies.EnactPolicy("WF2");
+        GD.Print($"  WF2: {third.Message}");
+        Check("tier 2 unlocks after tier 1 and its minimum day", third.Success);
+
+        // A tier whose prerequisite is missing must still refuse, so the
+        // ladder cannot be climbed out of order.
+        var outOfOrder = policies.EnactPolicy("WF3");
+        var reachedTier3 = outOfOrder.Success;
+        GD.Print($"  WF3: {outOfOrder.Message}");
+        Check("tier 3 follows tier 2 in order", reachedTier3);
+
+        // Skipping a tier must still be refused.
+        var skipped = policies.EnactPolicy("SE3");
+        Check("a policy on the closed branch stays refused", !skipped.Success);
+
+        Check("enacted policies are recorded", policies.EnactedPolicies.Count == 4);
+        GD.Print($"  modifiers: {policies.GetModifierSummary()}");
+
+        Check("enacting policies produced real modifiers",
+            policies.GetModifierSummary() != "(no active modifiers)");
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────

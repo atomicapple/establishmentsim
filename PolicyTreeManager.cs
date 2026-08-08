@@ -103,9 +103,18 @@ public partial class PolicyTreeManager : Node, ISaveableSystem
     {
         get
         {
-            int currentDay = GameStateManager.Instance?.DayCount ?? 0;
-            int nextAvailable = _lastEnactmentDay + EnactmentCooldownDays;
-            return Math.Max(0, nextAvailable - currentDay);
+            // int.MinValue is the "nothing signed yet" sentinel. Adding the
+            // cooldown to it and subtracting the current day underflows and
+            // wraps to a huge positive number, which reported a cooldown of
+            // 2,147,483,646 days and made the very first policy unenactable —
+            // on top of the prerequisite mismatch that blocked everything
+            // after it. Widening to long keeps the arithmetic honest.
+            if (_lastEnactmentDay == int.MinValue) return 0;
+
+            long currentDay = GameStateManager.Instance?.DayCount ?? 0;
+            long nextAvailable = (long)_lastEnactmentDay + EnactmentCooldownDays;
+
+            return (int)Math.Clamp(nextAvailable - currentDay, 0, int.MaxValue);
         }
     }
 
@@ -372,8 +381,7 @@ public partial class PolicyTreeManager : Node, ISaveableSystem
         }
 
         // 6. Check prerequisite
-        if (!string.IsNullOrEmpty(policy.PrerequisitePolicy) &&
-            !_enactedPolicies.Contains(policy.PrerequisitePolicy))
+        if (!IsPrerequisiteMet(policy))
         {
             return EnactmentResult.Fail(
                 $"Prerequisite not met: '{policy.PrerequisitePolicy}' must be enacted first.");
@@ -490,8 +498,7 @@ public partial class PolicyTreeManager : Node, ISaveableSystem
                 ? _activeBranch == PolicyBranch.None  // branch selector: only if no branch chosen
                 : _activeBranch == policy.Branch;      // tier 1+: must match active branch
 
-            bool prerequisiteMet = string.IsNullOrEmpty(policy.PrerequisitePolicy) ||
-                                   _enactedPolicies.Contains(policy.PrerequisitePolicy);
+            bool prerequisiteMet = IsPrerequisiteMet(policy);
 
             int currentDay = GameStateManager.Instance?.DayCount ?? 0;
             bool dayOk = currentDay >= policy.MinDay;
@@ -604,6 +611,38 @@ public partial class PolicyTreeManager : Node, ISaveableSystem
 
         GD.Print($"[PolicyTree] Restored: branch {_activeBranch}, " +
                  $"{_enactedPolicies.Count} policies, mods=[{GetModifierSummary()}]");
+    }
+
+    /// <summary>
+    /// Whether a policy's prerequisite has been enacted.
+    ///
+    /// The two sides of this comparison were speaking different languages:
+    /// <c>_enactedPolicies</c> holds dictionary *keys* ("WF1"), while
+    /// <see cref="PolicyDefinition.PrerequisitePolicy"/> holds a *PolicyName*
+    /// ("Medical Care Provision"). A direct Contains could never match, so
+    /// every tier 1+ policy was permanently locked and the tree stopped dead
+    /// at the branch choice — the entire progression was unreachable.
+    ///
+    /// The prerequisite is resolved by name to its key rather than changing
+    /// what the set stores, because the keys are what the save file persists.
+    /// </summary>
+    private bool IsPrerequisiteMet(PolicyDefinition policy)
+    {
+        if (policy == null || string.IsNullOrEmpty(policy.PrerequisitePolicy)) return true;
+        if (_allPolicies == null) return false;
+
+        // Accept a key directly too, so a definition may name either form.
+        if (_enactedPolicies.Contains(policy.PrerequisitePolicy)) return true;
+
+        foreach (var kvp in _allPolicies)
+        {
+            if (kvp.Value?.PolicyName != policy.PrerequisitePolicy) continue;
+            return _enactedPolicies.Contains(kvp.Key);
+        }
+
+        GD.PrintErr($"[PolicyTree] '{policy.PolicyName}' names an unknown " +
+                    $"prerequisite '{policy.PrerequisitePolicy}'.");
+        return false;
     }
 
     /// <summary>

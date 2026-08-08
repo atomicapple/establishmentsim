@@ -46,6 +46,9 @@ public partial class GameScene : Node
     /// <summary>Capture runs only: open the influence panel.</summary>
     [Export] public bool CaptureInfluencePanel { get; set; }
 
+    /// <summary>Capture runs only: open the Panderer's Code panel.</summary>
+    [Export] public bool CapturePolicyPanel { get; set; }
+
     /// <summary>
     /// Capture runs only: override the orthographic camera size, in metres of
     /// world height. Zero keeps the automatic fit. Small values zoom in for
@@ -65,6 +68,7 @@ public partial class GameScene : Node
     private DecoratePanel _decorate;
     private StaffPanel _staff;
     private InfluencePanel _influence;
+    private PolicyPanel _policy;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -143,6 +147,9 @@ public partial class GameScene : Node
         _influence = new InfluencePanel { Name = "InfluencePanel" };
         panelLayer.AddChild(MakeSidePanelHost("InfluenceHost", InfluencePanelWidth, _influence));
 
+        _policy = new PolicyPanel { Name = "PolicyPanel" };
+        panelLayer.AddChild(MakeSidePanelHost("PolicyHost", PolicyPanel.PanelWidth, _policy));
+
         _screenshot = new ScreenshotCapture
         {
             Name = "ScreenshotCapture",
@@ -215,6 +222,9 @@ public partial class GameScene : Node
         _influence.OnCloseRequested += () => _influence.Visible = false;
         _influence.OnAllocationChanged += (_, _) => _hud?.RefreshAll();
 
+        _policy.OnCloseRequested += () => _policy.Visible = false;
+        _policy.OnPolicyEnacted += OnPolicyEnacted;
+
         // The HUD's roster controls open the staff panel.
         _hud.OnStaffSelected += _ => ToggleStaffPanel(true);
     }
@@ -244,6 +254,19 @@ public partial class GameScene : Node
 
     private void ToggleInfluencePanel(bool show) => ShowOnly(show ? _influence : null);
 
+    private void TogglePolicyPanel(bool show) => ShowOnly(show ? _policy : null);
+
+    /// <summary>
+    /// A signed policy changes standing modifiers across the whole house, so
+    /// refresh everything that reads them.
+    /// </summary>
+    private void OnPolicyEnacted(string policyKey)
+    {
+        _hud?.RefreshAll();
+        _staff?.Refresh();
+        GD.Print($"[GameScene] Policy enacted: {policyKey}");
+    }
+
     /// <summary>
     /// Show one left-column panel and hide the rest. They all occupy the same
     /// space, so opening one has to close the others.
@@ -253,9 +276,11 @@ public partial class GameScene : Node
         _decorate.Visible = panel == _decorate;
         _staff.Visible = panel == _staff;
         _influence.Visible = panel == _influence;
+        _policy.Visible = panel == _policy;
 
         if (panel == _staff) _staff.Refresh();
         else if (panel == _influence) _influence.Refresh();
+        else if (panel == _policy) _policy.Refresh();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -271,6 +296,10 @@ public partial class GameScene : Node
 
             case Key.I:
                 ToggleInfluencePanel(!_influence.Visible);
+                break;
+
+            case Key.P:
+                TogglePolicyPanel(!_policy.Visible);
                 break;
 
             case Key.Escape:
@@ -305,6 +334,8 @@ public partial class GameScene : Node
             GetTree()?.Root?.FindChild("PoliticalInfluenceSystem", true, false)
                 as PoliticalInfluenceSystem,
             _boot.Venue);
+
+        _policy.Bind(_boot.Policies);
 
         var night = _boot.Night;
         night.OnEncounterStarted += OnEncounterStarted;
@@ -364,6 +395,12 @@ public partial class GameScene : Node
         if (CaptureInfluencePanel)
         {
             ToggleInfluencePanel(true);
+            return;
+        }
+
+        if (CapturePolicyPanel)
+        {
+            TogglePolicyPanel(true);
             return;
         }
 
