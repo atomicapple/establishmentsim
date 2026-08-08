@@ -121,6 +121,7 @@ public partial class GameBootstrap : Node
         {
             SeedVenue();
             SeedRoster();
+            SeedDistricts();
         }
 
         Loop?.EnterManagement();
@@ -191,6 +192,34 @@ public partial class GameBootstrap : Node
 
         foreach (var (name, category) in pieces)
             Venue.AddFurniture(room.GridPosition, FurnitureItem.Create(name, category, style, tier));
+    }
+
+    /// <summary>
+    /// Register the city's districts with the property market.
+    ///
+    /// RealEstateMarket.RegisterDistrict had no callers anywhere, so the
+    /// market was permanently empty and OwnedCount was always zero. That in
+    /// turn made the syndicate war's "Underworld Dominance" ending — which
+    /// requires holding three districts — unreachable in any real campaign.
+    ///
+    /// The first three names match the territories SyndicateRivalAI already
+    /// assigns to its factions, so buying property is buying into somebody's
+    /// turf rather than an unrelated menu.
+    /// </summary>
+    private void SeedDistricts()
+    {
+        var market = GetNodeOrNull<RealEstateMarket>("RealEstateMarket");
+        if (market == null) return;
+
+        var heat = GameStateManager.Instance?.Heat ?? 0f;
+
+        market.RegisterDistrict("Harbor Wharfs", 9000, heat);
+        market.RegisterDistrict("Gilded Heights", 22000, heat);
+        market.RegisterDistrict("The Warrens", 6000, heat);
+        market.RegisterDistrict("Lamplight Row", 12000, heat);
+        market.RegisterDistrict("Old Cathedral Quarter", 16000, heat);
+
+        GD.Print($"[Bootstrap] {market.Properties.Count} districts registered.");
     }
 
     /// <summary>

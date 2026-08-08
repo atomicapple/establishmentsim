@@ -132,6 +132,7 @@ public partial class SmokeTest : Node
             RunPolicyCheck();
             RunRegularsCheck();
             RunAmbitionCheck();
+            RunNarrativeCheck();
             CallDeferred(nameof(RunPersistenceCheck));
             return;
         }
@@ -401,6 +402,10 @@ public partial class SmokeTest : Node
         var forgotten = regulars.RecordVisit(null, client, 120, 30f, wantsToReturn: false);
         Check("an unhappy stranger is forgotten", forgotten == null);
 
+        // Captured rather than assumed: GenerateRandomClient randomises this,
+        // so comparing against a hardcoded 45 was only accidentally passing.
+        var startingExpectation = client.ExpectedAppointment;
+
         // A stranger who enjoyed themselves becomes a record.
         var patron = regulars.RecordVisit(null, client, 120, 82f, wantsToReturn: true);
         Check("a satisfied stranger is remembered", patron != null);
@@ -425,7 +430,9 @@ public partial class SmokeTest : Node
         GD.Print($"  {patron}");
         GD.Print($"  expectation has risen to {patron.ExpectedAppointment:F0}");
 
-        Check("their expectations rose with familiarity", patron.ExpectedAppointment > 45f);
+        Check($"their expectations rose with familiarity " +
+              $"({startingExpectation:F0} → {patron.ExpectedAppointment:F0})",
+            patron.ExpectedAppointment > startingExpectation);
         Check("spend accumulated", patron.TotalSpend > 500);
 
         // A patron arrives with a bigger purse than a stranger.
@@ -532,6 +539,115 @@ public partial class SmokeTest : Node
         Check("sustained retaliation fulfils revenge", poached.AmbitionFulfilled);
 
         roster.Remove(poached.Id, "test cleanup");
+    }
+
+    // ── Narrative arcs ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Arc endings must change the world, not describe changing it.
+    ///
+    /// All three arcs resolved into flavour text sitting above a
+    /// "// Apply permanent bonus" comment, so the campaign's entire long-term
+    /// spine — 200-plus in-game days of build-up — altered nothing about the
+    /// run. This drives each ending and checks the promised consequence
+    /// actually landed.
+    /// </summary>
+    private void RunNarrativeCheck()
+    {
+        GD.Print("\n── Narrative arcs ──");
+
+        var arcs = GetTree()?.Root?.FindChild("NarrativeArcTracker", true, false)
+            as NarrativeArcTracker;
+        var heat = _boot.Heat;
+        var gsm = GameStateManager.Instance;
+
+        Check("narrative tracker present", arcs != null);
+        if (arcs == null || heat == null || gsm == null) return;
+
+        // ── A friendly mayor should permanently damp heat ──────────────
+        gsm.PublicSentiment = 80f;
+
+        var politics = GetTree()?.Root?.FindChild("PoliticalInfluenceSystem", true, false)
+            as PoliticalInfluenceSystem;
+
+        politics?.RestoreState(new System.Text.Json.Nodes.JsonObject
+        {
+            ["figures"] = new System.Text.Json.Nodes.JsonArray
+            {
+                new System.Text.Json.Nodes.JsonObject
+                {
+                    ["figure"] = MunicipalFigure.DistrictAttorney.ToString(),
+                    ["favor"] = 75f, ["allocation"] = 0.0
+                }
+            }
+        });
+
+        var heatMultiplierBefore = heat.CampaignHeatMultiplier;
+        var commissionerBefore = politics?.CommissionerFavor ?? 0f;
+
+        arcs.ResolveArcForTesting("mayoral_campaign");
+
+        Check("a friendly mayor permanently damps heat generation",
+            heat.CampaignHeatMultiplier < heatMultiplierBefore);
+        Check("an ally in office lifts commissioner favour",
+            politics == null || politics.CommissionerFavor > commissionerBefore);
+
+        GD.Print($"  mayoral: heat ×{heat.CampaignHeatMultiplier:F2}, " +
+                 $"commissioner {politics?.CommissionerFavor:F0}");
+
+        // ── Winning the syndicate war should pay tribute ───────────────
+        var ledger = _boot.Ledger;
+        var passiveBefore = ledger.PassiveDailyIncome;
+
+        var syndicates = GetTree()?.Root?.FindChild("SyndicateRivalAI", true, false) as SyndicateRivalAI;
+        foreach (var faction in syndicates?.Syndicates ?? new List<RivalSyndicate>())
+            faction.Aggression = 5f;
+
+        // Dominance needs territory as well as a beaten enemy, so take three
+        // districts. Setting only aggression resolves to the truce ending,
+        // which correctly pays nothing.
+        var market = GetTree()?.Root?.FindChild("RealEstateMarket", true, false) as RealEstateMarket;
+        if (market != null)
+        {
+            foreach (var property in market.Properties.Values.Take(3))
+                property.Status = PropertyStatus.Owned;
+        }
+
+        Check("three districts are held", (market?.OwnedCount ?? 0) >= 3);
+
+        arcs.ResolveArcForTesting("syndicate_war");
+
+        Check("crushing the syndicates pays standing tribute",
+            ledger.PassiveDailyIncome > passiveBefore);
+        Check("beaten syndicates stop pushing",
+            syndicates == null || syndicates.Syndicates.All(f => f.Aggression <= 5f));
+
+        GD.Print($"  syndicate war: standing income ${ledger.PassiveDailyIncome:F0}/day");
+
+        // ── A federal indictment should actually cost money ────────────
+        politics?.RestoreState(new System.Text.Json.Nodes.JsonObject
+        {
+            ["figures"] = new System.Text.Json.Nodes.JsonArray
+            {
+                new System.Text.Json.Nodes.JsonObject
+                {
+                    ["figure"] = MunicipalFigure.DistrictAttorney.ToString(),
+                    ["favor"] = 5f, ["allocation"] = 0.0
+                }
+            }
+        });
+
+        gsm.Cash = 20000;
+        var cashBefore = gsm.Cash;
+
+        var macro = _boot.Macro;
+        arcs.ResolveArcForTesting("federal_investigation");
+
+        Check("an indictment seizes assets", gsm.Cash < cashBefore);
+        Check("an indictment forces a crackdown",
+            macro == null || macro.CurrentPhase == MacroPhase.PoliceCrackdown);
+
+        GD.Print($"  federal: cash {cashBefore:F0} → {gsm.Cash:F0}, phase {macro?.CurrentPhase}");
     }
 
     // ── Persistence round-trip ─────────────────────────────────────────

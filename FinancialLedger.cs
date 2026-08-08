@@ -21,7 +21,11 @@ public enum ExpenseCategory
     StaffSalaries,
     Bribes,
     RoomUpgrades,
-    FacilityMaintenance
+    FacilityMaintenance,
+
+    /// <summary>Lawyers, fines and settlements. Distinct from bribes: this is
+    /// what gets paid once the trouble is already official.</summary>
+    LegalDefense
 }
 
 /// <summary>A single financial transaction recorded in the ledger.</summary>
@@ -116,6 +120,14 @@ public partial class FinancialLedger : Node, ISaveableSystem
     /// <summary>Daily room upkeep/upgrade amortization.</summary>
     public double DailyRoomUpgrades { get; set; } = 25.0;
 
+    /// <summary>
+    /// Standing daily income independent of the night's trade, set by
+    /// narrative arc endings — tribute from beaten syndicates, and the like.
+    /// Booked as revenue so it shows up in the Ledger rather than appearing
+    /// as unexplained cash.
+    /// </summary>
+    public double PassiveDailyIncome { get; set; }
+
     // ── JSON Serializer Options ─────────────────────────────────────────
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -175,6 +187,10 @@ public partial class FinancialLedger : Node, ISaveableSystem
         // PolicyTreeManager.PermanentOpexModifier was previously computed on
         // enactment and never actually charged to anyone.
         var maintenance = Math.Max(0.0, DailyFacilityMaintenance + policyOpex);
+
+        if (PassiveDailyIncome > 0)
+            RecordRevenue(RevenueCategory.InformationSales, PassiveDailyIncome,
+                $"Day {day} tribute and standing arrangements");
 
         RecordExpense(ExpenseCategory.StaffSalaries, salaries,
             $"Day {day} staff salaries");

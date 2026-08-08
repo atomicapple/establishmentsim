@@ -73,6 +73,14 @@ public partial class HeatSystem : Node, ISaveableSystem
     /// </summary>
     public float HeatPerThousandRevenue { get; set; } = 5.0f;
 
+    /// <summary>
+    /// Permanent multiplier on heat generation, set by narrative arc endings.
+    /// A friendly mayor bends this down for the rest of the campaign; a
+    /// hostile one does the opposite. Separate from the policy modifier so
+    /// the two stack rather than overwriting each other.
+    /// </summary>
+    public float CampaignHeatMultiplier { get; set; } = 1.0f;
+
     /// <summary>Multiplier applied per client tier level.</summary>
     public float[] TierMultipliers { get; set; } = { 1.0f, 1.5f, 2.5f };
 
@@ -166,7 +174,8 @@ public partial class HeatSystem : Node, ISaveableSystem
         float heatFromRevenue = (float)(dailyRevenue / 1000.0)
                                 * HeatPerThousandRevenue
                                 * tierMultiplier
-                                * Mathf.Max(0f, policyModifier);
+                                * Mathf.Max(0f, policyModifier)
+                                * Mathf.Max(0f, CampaignHeatMultiplier);
 
         float net = heatFromRevenue - decay;
         if (!Mathf.IsZeroApprox(net)) Heat += net;

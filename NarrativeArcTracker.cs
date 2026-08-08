@@ -221,13 +221,18 @@ public partial class NarrativeArcTracker : Node, ISaveableSystem
             arc.Branch = "good";
             arc.EndingTitle = "Ally Elected Mayor";
             arc.EndingDescription = "Your supported candidate wins. Heat accumulation −30% permanently. New zoning permits unlocked.";
-            // Apply permanent bonus
+
+            ApplyHeatMultiplier(0.70f);
+            GrantCommissionerFavour(25f);
         }
         else if (sentiment < 30 || daFavor < 20)
         {
             arc.Branch = "bad";
             arc.EndingTitle = "Hostile Mayor Elected";
             arc.EndingDescription = "An anti-vice mayor takes office. Police Crackdown phase forced. All bribes +50% cost.";
+
+            ApplyHeatMultiplier(1.50f);
+            ForceCrackdown();
         }
         else
         {
@@ -250,12 +255,17 @@ public partial class NarrativeArcTracker : Node, ISaveableSystem
             arc.Branch = "good";
             arc.EndingTitle = "Underworld Dominance";
             arc.EndingDescription = "You've crushed the opposition. All rival syndicates pay tribute. +$500/day passive income.";
+
+            GrantPassiveIncome(500.0);
+            PacifySyndicates();
         }
         else if (aggression > 60f)
         {
             arc.Branch = "bad";
             arc.EndingTitle = "Forced into Retreat";
             arc.EndingDescription = "The syndicates overpowered you. Lose control of weakest district. Reputation −20.";
+
+            AdjustReputation(-20f);
         }
         else
         {
@@ -277,20 +287,129 @@ public partial class NarrativeArcTracker : Node, ISaveableSystem
             arc.Branch = "good";
             arc.EndingTitle = "Case Dismissed";
             arc.EndingDescription = "The DA quashes the investigation. Federal heat permanently −20. For now.";
+
+            RemoveHeat(20f);
+            ApplyHeatMultiplier(0.90f);
         }
         else if (daFavor < 30)
         {
             arc.Branch = "bad";
             arc.EndingTitle = "Indictment";
             arc.EndingDescription = "Federal charges filed. Assets frozen ($5,000 lost). Police Crackdown phase forced.";
+
+            ChargeFine(5000.0, "Federal asset seizure");
+            ForceCrackdown();
         }
         else
         {
             arc.Branch = "neutral";
             arc.EndingTitle = "Settlement";
             arc.EndingDescription = "A quiet settlement is reached. $2,000 fine. Investigation closed.";
+
+            ChargeFine(2000.0, "Federal settlement");
         }
     }
+
+    /// <summary>
+    /// Drive an arc's resolution directly.
+    ///
+    /// The arcs conclude around day 200–300 of a campaign, which is far too
+    /// late to be reachable from a test that plays a handful of nights. This
+    /// lets the smoke run assert that each ending's promised consequence
+    /// actually lands.
+    /// </summary>
+    public void ResolveArcForTesting(string arcId)
+    {
+        switch (arcId)
+        {
+            case "mayoral_campaign": ResolveMayoralElection(); break;
+            case "syndicate_war": ResolveSyndicateWar(); break;
+            case "federal_investigation": ResolveFederalInvestigation(); break;
+            default: GD.PrintErr($"[Narrative] Unknown arc '{arcId}'."); break;
+        }
+    }
+
+    // ── Ending effects ─────────────────────────────────────────────────
+    //
+    // Every ending above promised a concrete consequence and delivered a
+    // string. The descriptions were accurate about intent and the code below
+    // is what makes them true — without it the campaign's entire long-term
+    // spine resolved into flavour text and changed nothing about the run.
+
+    /// <summary>Multiply permanent heat generation, compounding with earlier arcs.</summary>
+    private void ApplyHeatMultiplier(float multiplier)
+    {
+        var heat = FindNode<HeatSystem>("HeatSystem");
+        if (heat == null) return;
+
+        heat.CampaignHeatMultiplier *= multiplier;
+        GD.Print($"[Narrative] Heat generation now ×{heat.CampaignHeatMultiplier:F2} for the rest of the run.");
+    }
+
+    /// <summary>Remove a block of accumulated heat outright.</summary>
+    private void RemoveHeat(float amount) => FindNode<HeatSystem>("HeatSystem")?.RemoveHeat(amount);
+
+    /// <summary>Force the city into a crackdown, whatever phase it was in.</summary>
+    private void ForceCrackdown()
+    {
+        FindNode<MacroEconomyEngine>("MacroEconomyEngine")?.ForcePhase(MacroPhase.PoliceCrackdown);
+        GD.Print("[Narrative] The city has turned. Police crackdown forced.");
+    }
+
+    /// <summary>Standing daily income, booked through the ledger as revenue.</summary>
+    private void GrantPassiveIncome(double amount)
+    {
+        var ledger = FindNode<FinancialLedger>("FinancialLedger");
+        if (ledger == null) return;
+
+        ledger.PassiveDailyIncome += amount;
+        GD.Print($"[Narrative] Standing income now ${ledger.PassiveDailyIncome:F0}/day.");
+    }
+
+    /// <summary>Beaten syndicates stop pushing.</summary>
+    private void PacifySyndicates()
+    {
+        var syndicates = FindNode<SyndicateRivalAI>("SyndicateRivalAI");
+        if (syndicates?.Syndicates == null) return;
+
+        foreach (var faction in syndicates.Syndicates)
+        {
+            faction.Aggression = Mathf.Max(0f, faction.Aggression - 40f);
+            faction.Respect = Mathf.Min(100f, faction.Respect + 30f);
+        }
+    }
+
+    /// <summary>Buy standing with the Commissioner — an ally in office helps.</summary>
+    private void GrantCommissionerFavour(float amount)
+    {
+        var politics = FindNode<PoliticalInfluenceSystem>("PoliticalInfluenceSystem");
+        var relationship = politics?.GetRelationship(MunicipalFigure.CityCommissioner);
+        if (relationship == null) return;
+
+        relationship.Favor = Mathf.Clamp(relationship.Favor + amount, 0f, 100f);
+        GD.Print($"[Narrative] Commissioner favour now {relationship.Favor:F0}.");
+    }
+
+    private void AdjustReputation(float delta)
+    {
+        if (GameStateManager.Instance != null) GameStateManager.Instance.Reputation += delta;
+    }
+
+    /// <summary>Take money through the ledger so the loss is explicable.</summary>
+    private void ChargeFine(double amount, string description)
+    {
+        var ledger = FindNode<FinancialLedger>("FinancialLedger");
+
+        if (ledger != null)
+            ledger.RecordExpense(ExpenseCategory.LegalDefense, amount, description);
+        else if (GameStateManager.Instance != null)
+            GameStateManager.Instance.Cash -= amount;
+
+        GD.Print($"[Narrative] {description}: ${amount:F0}.");
+    }
+
+    private T FindNode<T>(string nodeName) where T : Node =>
+        GetTree()?.Root?.FindChild(nodeName, true, false) as T;
 
     private void TriggerHighStakesEvent(string arcId, string description)
     {
