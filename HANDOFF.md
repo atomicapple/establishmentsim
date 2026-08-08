@@ -243,7 +243,7 @@ invisible window.
 
 See `ASSETS.md` — it documents the drop-in conventions in full.
 
-Short version: **`Assets/` is tracked in full** — 551 MB, nothing excluded,
+Short version: **`Assets/` is tracked in full** — 246 MB, nothing excluded,
 no LFS. It was 2.1 GB with four files over GitHub's 100 MiB hard limit until
 `tools/` was written; see below.
 Furniture auto-discovers from folder names under `Assets/Furniture/`; the
@@ -484,25 +484,20 @@ purple runner rug   31.2 -> 1.0 MB        (all texture, barely any geometry)
 Originals of the four beds — the only files git never had — are at
 `C:\whorehouse_asset_backup`.
 
-### What is still large, and why it is still here
+### Nothing here is source material any more
 
-```
-90.9 MB  Characters/Meshy_AI_Wealthy_Gentleman_Rig_biped.zip
-58.1 MB  Characters/BlackHairWhite/Meshy_AI_Elegant_Woman_Rigged_biped.zip
-46.2 MB  Characters/Blonde1/Meshy_AI_Classic_Blonde_Rigged_biped.zip
-26.4 MB  Characters/wealthy_gentleman_texture_0.png   (and three more like it)
-```
+The three Meshy `.zip` rig archives and the unpacked
+`Meshy_AI_Wealthy_Gentleman_Rig_biped/` folder are gone — about 280 MB of
+master material for the three characters the game uses. **If a character ever
+needs re-rigging or re-exporting, it comes back out of git history, or out of
+Meshy.** Nothing in the working tree is a master any more; everything left is
+a runtime asset.
 
-The three `.zip` files are the **source rig archives from Meshy for the three
-characters the game actually uses**, and the
-`Meshy_AI_Wealthy_Gentleman_Rig_biped/` folder is one of them unpacked. None
-of it is loaded — the game reads `wealthy_gentleman.glb` and the two merged
-animation files — but it is the master material for characters still in use,
-so deleting it is a different decision from deleting an unused model and has
-not been taken. Roughly 250 MB sits here.
-
-The loose 26 MB PNGs are external textures beside GLBs that now embed their
-own. Probably orphaned, but "probably" is not enough to delete an art file.
+One orphan remains and is deliberate: `wealthy_gentleman_texture_0.png`,
+26.4 MB. Every used `.glb` embeds its own textures — verified, zero external
+URI references — so nothing loads it. It is left only because a 26 MB
+hand-editable texture is the kind of thing an artist reaches for, and it is
+one file.
 
 ## What's left
 
