@@ -30,13 +30,21 @@ obj/
 /Godot_v*.exe
 
 # ── Art assets ────────────────────────────────────────────────────────
-# ~1.1 GB of Meshy-generated 3D models and textures, with ten files over
-# 40 MB. Excluded because the project has moved to 2D illustrated
-# isometric (the 3D renderer was removed), these are regenerable from
-# their source prompts, and 1.1 GB exceeds GitHub's free 1 GB LFS quota.
-# The files stay on disk untouched — they are untracked, not deleted.
-# Revisit with Git LFS once a curated 2D sprite set replaces them.
-/Assets/
+# Assets/ IS tracked. The old comment here said it was excluded because
+# the project had moved to 2D illustrated isometric — that stopped being
+# true at the 3D migration and the note was simply stale.
+#
+# 1.55 GiB across 157 files, all of them under GitHub's 100 MiB per-file
+# hard limit. No LFS: the free tier is 1 GB and nothing here needs it once
+# the four exceptions below are out.
+#
+# The four ornate bed exports from Meshy are 103–138 MiB each — over the
+# limit, so a push containing any of them is rejected outright. They are
+# also absurd as game assets: 138 MiB for something the player sees at a
+# couple of hundred pixels behind a cutaway wall. Excluded pending
+# replacement with smaller textured models. The small Regal Purple Velvet
+# bed in the same folder is 300 KB and IS tracked.
+Assets/Furniture/Beds/GLB/Meshy_AI_isolated_ornate_luxur_*.glb
 
 # ── Local tooling and scratch ─────────────────────────────────────────
 /.reasonix/
