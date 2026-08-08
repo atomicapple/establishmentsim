@@ -495,6 +495,12 @@ public static class VenueFurnitureBuilder
             ? at + new Vector3(0f, VenueSpace.WallHeight * 0.45f, 0f)
             : at;
 
+        // A model exported without textures renders flat white and loses all
+        // style identity — five different beds become the same pale block.
+        // Tint only those; a textured model keeps its own materials, so this
+        // stops applying itself the moment the art is re-exported.
+        if (!HasAnyTexture(instance)) TintModel(instance, tint);
+
         // Dilapidated pieces are washed out even when they are real geometry,
         // so decay reads the same way across model and procedural furniture.
         if (item.IsDilapidated) TintModel(instance, IsoTheme.Backdrop.Lerp(tint, 0.35f));
@@ -502,6 +508,30 @@ public static class VenueFurnitureBuilder
         var wrapper = new Node3D();
         wrapper.AddChild(instance);
         return wrapper;
+    }
+
+    /// <summary>
+    /// Whether any mesh in a loaded model carries an albedo texture.
+    ///
+    /// Used to decide whether a model needs a style tint standing in for its
+    /// missing material. Checks the surface materials rather than any
+    /// override, because that is where a glb's own textures land.
+    /// </summary>
+    private static bool HasAnyTexture(Node node)
+    {
+        if (node is MeshInstance3D { Mesh: not null } mesh)
+        {
+            for (var surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
+            {
+                var material = mesh.GetActiveMaterial(surface);
+                if (material is StandardMaterial3D { AlbedoTexture: not null }) return true;
+            }
+        }
+
+        foreach (var child in node.GetChildren())
+            if (HasAnyTexture(child)) return true;
+
+        return false;
     }
 
     /// <summary>
