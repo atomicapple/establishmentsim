@@ -14,6 +14,16 @@ using System.Linq;
 /// Run with:
 ///   Godot_v4.7.1-stable_win64_console.exe --headless --path . balance.tscn
 /// </summary>
+/// <summary>How the naive harness answers a crisis.</summary>
+public enum CrisisPolicy
+{
+    /// <summary>Always the first option — "pay it away". The expensive floor.</summary>
+    PayItAway,
+
+    /// <summary>Whichever option costs the least cash tonight.</summary>
+    Cheapest
+}
+
 public partial class BalanceHarness : Node
 {
     /// <summary>Nights to simulate.</summary>
@@ -21,6 +31,18 @@ public partial class BalanceHarness : Node
 
     /// <summary>Seed, so a tuning change is measured against the same run.</summary>
     [Export] public ulong Seed { get; set; } = 20260807;
+
+    /// <summary>
+    /// How the harness answers a crisis.
+    ///
+    /// It cannot ignore one — an unanswered crisis latches the director and
+    /// suppresses every later one — so it has to have a policy, and the
+    /// policy materially changes the cash line. Option zero is the "pay it
+    /// away" choice in every authored scenario and therefore the most
+    /// expensive, which makes <see cref="CrisisPolicy.PayItAway"/> a floor
+    /// rather than a typical run. Run both to bracket the economy.
+    /// </summary>
+    [Export] public CrisisPolicy CrisisAnswer { get; set; } = CrisisPolicy.PayItAway;
 
     private GameBootstrap _boot;
     private int _played;
@@ -114,7 +136,8 @@ public partial class BalanceHarness : Node
         if (crises?.CrisisActive == true)
         {
             _crisesAnswered++;
-            if (!crises.ExecuteChoice(0)) crises.DismissCrisis();
+            if (!crises.ExecuteChoice(PickCrisisChoice(crises.ActiveScenario)))
+                crises.DismissCrisis();
         }
 
         var r = _boot.Night.CurrentReport;
@@ -151,6 +174,26 @@ public partial class BalanceHarness : Node
         }
 
         StartNight();
+    }
+
+    /// <summary>
+    /// Neither policy is skilled play. Both are stand-ins for a player who
+    /// is not thinking — one who reflexively pays, and one who reflexively
+    /// does not. Real play sits between them.
+    /// </summary>
+    private int PickCrisisChoice(CrisisScenario scenario)
+    {
+        if (scenario == null || scenario.Choices.Count == 0) return 0;
+        if (CrisisAnswer == CrisisPolicy.PayItAway) return 0;
+
+        var best = 0;
+        for (var i = 1; i < scenario.Choices.Count; i++)
+        {
+            if (scenario.Choices[i].Effects.Cash > scenario.Choices[best].Effects.Cash)
+                best = i;
+        }
+
+        return best;
     }
 
     private void Report()
@@ -211,7 +254,7 @@ public partial class BalanceHarness : Node
                  $"({apptLast - apptFirst:+0.0;-0.0;0} over {_samples.Count} nights, " +
                  $"unattended)");
 
-        GD.Print($"  crises faced {_crisesAnswered}");
+        GD.Print($"  crises faced {_crisesAnswered} (answered: {CrisisAnswer})");
 
         // The Ledger is meant to ask the player something. It asked nothing
         // at all until the thresholds were lowered, and the only reason

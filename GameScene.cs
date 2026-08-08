@@ -89,6 +89,9 @@ public partial class GameScene : Node
     /// </summary>
     [Export] public string CaptureCrisis { get; set; } = "";
 
+    /// <summary>Capture runs only: open the Info shortcut card.</summary>
+    [Export] public bool CaptureHelp { get; set; }
+
     /// <summary>Seconds before an automatic screenshot. Zero disables it.</summary>
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
@@ -201,6 +204,8 @@ public partial class GameScene : Node
         _union = new UnionPanel { Name = "UnionPanel" };
         panelLayer.AddChild(MakeSidePanelHost("UnionHost", UnionPanel.PanelWidth, _union));
 
+        panelLayer.AddChild(BuildHelpCard());
+
         _screenshot = new ScreenshotCapture
         {
             Name = "ScreenshotCapture",
@@ -209,6 +214,71 @@ public partial class GameScene : Node
 
         AddChild(_screenshot);
     }
+
+    /// <summary>
+    /// The shortcut list behind the Info button.
+    ///
+    /// Built from <see cref="GameHud.PanelKey"/> rather than typed out, so it
+    /// is impossible for it to list a key that does not work — the same table
+    /// drives the tooltips and the handler.
+    /// </summary>
+    private Control BuildHelpCard()
+    {
+        var host = new Control
+        {
+            Name = "HelpHost",
+            AnchorLeft = 0f,
+            AnchorTop = 1f,
+            AnchorRight = 0f,
+            AnchorBottom = 1f,
+            OffsetLeft = 18f,
+            // Sized to clear the floor selector above it, which sits at a
+            // fixed offset from the same bottom edge.
+            OffsetTop = -(HudBottomHeight + 250f),
+            OffsetRight = 18f + 260f,
+            OffsetBottom = -(HudBottomHeight + 16f),
+            MouseFilter = Control.MouseFilterEnum.Ignore
+        };
+
+        var frame = new PanelContainer();
+        frame.AddThemeStyleboxOverride("panel", HudStyle.FramedPanel(12, 12));
+        host.AddChild(frame);
+        frame.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+
+        var column = new VBoxContainer();
+        column.AddThemeConstantOverride("separation", 4);
+        frame.AddChild(column);
+
+        column.AddChild(HudStyle.MakeLabel("KEYS", 12, IsoTheme.Gold));
+        column.AddChild(new HSeparator());
+
+        foreach (HudPanel panel in Enum.GetValues<HudPanel>())
+        {
+            var row = new HBoxContainer();
+            row.AddThemeConstantOverride("separation", 8);
+            column.AddChild(row);
+
+            var key = HudStyle.MakeLabel(
+                GameHud.PanelKey(panel).ToString(), 12, IsoTheme.Gold);
+            key.CustomMinimumSize = new Vector2(20f, 0f);
+            row.AddChild(key);
+
+            row.AddChild(HudStyle.MakeLabel(
+                GameHud.PanelLabel(panel), 12, IsoTheme.TextPrimary));
+        }
+
+        column.AddChild(new HSeparator());
+        column.AddChild(HudStyle.MakeLabel(
+            "Click a room to furnish it.", 11, IsoTheme.TextMuted));
+        column.AddChild(HudStyle.MakeLabel(
+            "Esc closes any panel.", 11, IsoTheme.TextMuted));
+
+        _help = host;
+        host.Visible = false;
+        return host;
+    }
+
+    private Control _help;
 
     private const float DecoratePanelWidth = 360f;
     private const float StaffPanelWidth = 400f;
@@ -290,6 +360,7 @@ public partial class GameScene : Node
         // The HUD's roster controls open the staff panel.
         _hud.OnStaffSelected += _ => ToggleStaffPanel(true);
         _hud.OnPanelRequested += panel => TogglePanel((HudPanel)panel);
+        _hud.OnToolRequested += tool => OnToolPressed((HudTool)tool);
     }
 
     /// <summary>
@@ -426,6 +497,83 @@ public partial class GameScene : Node
             TogglePanel(panel);
             return;
         }
+    }
+
+    // ── The three tools ────────────────────────────────────────────────
+
+    /// <summary>
+    /// The quick-action cluster, which emitted <c>OnToolRequested</c> into an
+    /// empty room since it was built — three round buttons and three top-bar
+    /// chips that did nothing when pressed.
+    ///
+    /// None of them gets a new system. Each one takes the player to something
+    /// that already exists, which is what a quick action should do.
+    /// </summary>
+    private void OnToolPressed(HudTool tool)
+    {
+        switch (tool)
+        {
+            case HudTool.Cleaning:
+                ShowWorstRoom();
+                break;
+
+            case HudTool.Alert:
+                ShowWhatIsWrong();
+                break;
+
+            case HudTool.Info:
+                _help.Visible = !_help.Visible;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Open the decorate panel on whichever room is in the worst condition.
+    /// Furniture wears where it is used, so the room that needs attention is
+    /// rarely the one the player was last looking at.
+    /// </summary>
+    private void ShowWorstRoom()
+    {
+        var venue = _boot?.Venue;
+        if (venue == null) return;
+
+        var worst = venue.Rooms.Values
+            .Where(venue.IsRevenueGenerating)
+            .OrderBy(r => r.AppointmentScore)
+            .FirstOrDefault();
+
+        if (worst == null)
+        {
+            _hud?.SetStatusChip(HudTool.Cleaning, "Nothing to tend", false);
+            return;
+        }
+
+        _view.FocusedFloor = worst.GridPosition.Z;
+        OnRoomClicked(worst.GridPosition.X, worst.GridPosition.Y, worst.GridPosition.Z);
+    }
+
+    /// <summary>
+    /// Take the player to whatever raised the alert, in the order that
+    /// matters: an unanswered crisis, then a strike, then the city.
+    /// </summary>
+    private void ShowWhatIsWrong()
+    {
+        if (ShowPendingCrisis()) return;
+
+        if (_boot?.Union?.StrikeActive == true)
+        {
+            ToggleUnionPanel(true);
+            return;
+        }
+
+        if (_boot?.Macro?.IsAdverse == true)
+        {
+            RefreshCityChip();
+            _hud?.SetStatusChip(HudTool.Alert, _boot.Macro.GetShortCaption(), true);
+            return;
+        }
+
+        _hud?.SetStatusChip(HudTool.Alert, "Nothing pressing", false);
     }
 
     // ── The city ───────────────────────────────────────────────────────
@@ -599,6 +747,12 @@ public partial class GameScene : Node
         {
             _boot.Crises?.ForceCrisis(forced);
             ShowPendingCrisis();
+            return;
+        }
+
+        if (CaptureHelp)
+        {
+            _help.Visible = true;
             return;
         }
 

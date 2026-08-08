@@ -621,7 +621,7 @@ public partial class GameHud : CanvasLayer
         }
     }
 
-    private static string PanelLabel(HudPanel panel) => panel switch
+    public static string PanelLabel(HudPanel panel) => panel switch
     {
         HudPanel.Staff => "Staff",
         HudPanel.Patrons => "Book",

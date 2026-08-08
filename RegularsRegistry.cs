@@ -29,6 +29,13 @@ public class Patron
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..10];
     public string Name { get; set; } = "Unknown";
 
+    /// <summary>
+    /// Order this patron entered the book. A stable sort key that does not
+    /// depend on <see cref="Id"/>, which is a fresh Guid on every run, nor on
+    /// dictionary enumeration order, which is an implementation detail.
+    /// </summary>
+    public int Sequence { get; set; }
+
     public int Visits { get; set; }
     public double TotalSpend { get; set; }
 
@@ -123,6 +130,9 @@ public partial class RegularsRegistry : Node, ISaveableSystem
     // ── State ──────────────────────────────────────────────────────────
 
     private readonly Dictionary<string, Patron> _patrons = new();
+
+    /// <summary>Next value for <see cref="Patron.Sequence"/>.</summary>
+    private int _nextSequence;
     private readonly RandomNumberGenerator _rng = new();
 
     /// <summary>
@@ -178,6 +188,7 @@ public partial class RegularsRegistry : Node, ISaveableSystem
 
             patron = new Patron
             {
+                Sequence = _nextSequence++,
                 Name = client?.Name ?? "Unknown",
                 DayFirstSeen = day,
                 PreferredRoom = client?.PreferredRoom ?? RoomType.PrivateSuite,
@@ -246,9 +257,17 @@ public partial class RegularsRegistry : Node, ISaveableSystem
         // get a second visit by being picked here. Nobody could ever be
         // promoted, so across a dozen nights the book stayed empty and the
         // entire regulars → patrons → intel chain never started.
+        // Ordered by Sequence before anything else. The shuffle below draws
+        // one random key per element *in enumeration order*, so who gets
+        // which key depends on the order this list arrives in — and that was
+        // Dictionary<string, Patron> enumeration order, which is an
+        // implementation detail rather than something the world seed
+        // controls. It happens to be stable today; sorting first makes it
+        // guaranteed rather than lucky.
         var candidates = _patrons.Values
             .Where(p => p.Satisfaction > AbandonSatisfaction)
             .Where(p => !_seenTonight.Contains(p.Id))
+            .OrderBy(p => p.Sequence)
             .ToList();
 
         if (candidates.Count == 0) return null;
@@ -369,6 +388,7 @@ public partial class RegularsRegistry : Node, ISaveableSystem
             list.Add(new JsonObject
             {
                 ["id"] = p.Id,
+                ["sequence"] = p.Sequence,
                 ["name"] = p.Name,
                 ["visits"] = p.Visits,
                 ["totalSpend"] = p.TotalSpend,
@@ -401,6 +421,7 @@ public partial class RegularsRegistry : Node, ISaveableSystem
             var patron = new Patron
             {
                 Id = (string)entry["id"] ?? Guid.NewGuid().ToString("N")[..10],
+                Sequence = (int?)entry["sequence"] ?? 0,
                 Name = (string)entry["name"] ?? "Unknown",
                 Visits = (int?)entry["visits"] ?? 0,
                 TotalSpend = (double?)entry["totalSpend"] ?? 0.0,
@@ -422,6 +443,11 @@ public partial class RegularsRegistry : Node, ISaveableSystem
 
             _patrons[patron.Id] = patron;
         }
+
+        // Continue the sequence past everyone restored, or the next new
+        // patron collides with an existing one and the sort key stops being
+        // an ordering.
+        _nextSequence = _patrons.Count == 0 ? 0 : _patrons.Values.Max(p => p.Sequence) + 1;
 
         GD.Print($"[Regulars] Restored {_patrons.Count} known clients " +
                  $"({PatronCount} patrons).");

@@ -43,6 +43,9 @@ Everything runs from `C:\whorehouse`. The .NET SDK and the Godot editor are
 
 # The same, over 50 nights — where slow drifts become visible
 ./Godot_v4.7.1-stable_win64_console.exe --headless --path . balance_long.tscn
+
+# 50 nights answering every crisis as cheaply as possible — the other bracket
+./Godot_v4.7.1-stable_win64_console.exe --headless --path . balance_thrifty.tscn
 ```
 
 **Always run both before committing.** The smoke test catches wiring; the
@@ -68,7 +71,8 @@ Self-driving screenshot runs. Each sets flags on `GameScene` and quits.
 `main_capture` · `closeup_capture` · `ledger_capture` · `staff_capture` ·
 `hiring_capture` · `influence_capture` · `policy_capture` ·
 `patrons_capture` · `licences_capture` · `union_capture` ·
-`union_strike_capture` · `crackdown_capture` · `crisis_capture`
+`union_strike_capture` · `crackdown_capture` · `crisis_capture` ·
+`help_capture`
 
 Output lands in
 `C:\Users\tobia\AppData\Roaming\Godot\app_userdata\Establishment Simulator\screenshots\`.
@@ -367,26 +371,23 @@ characters.
 
 ## What's left, in the order I'd do it
 
+Everything mechanical on the old list is done. What remains is either a
+judgement call or work on the art.
+
 1. **Balance constants predate the working harness.** Anything justified by
    a harness run before `WorldRandom` was measured against ±55% noise.
-   Re-derive rather than trust.
+   Re-derive rather than trust — including numbers whose commit messages
+   sound confident.
 
 2. **Asset decimation.** Thirteen files drew GitHub's "larger than the
    recommended 50 MB" warning, and four beds are excluded from the repo for
-   breaking the 100 MiB hard limit. Has to happen before release regardless.
+   breaking the 100 MiB hard limit. A 70 MB rug is a Meshy default, not a
+   game asset. Has to happen before release regardless of storage.
 
-3. **The harness always takes choice 0 in a crisis**, which is the "pay it
-   away" option in every scenario and therefore the most expensive. That
-   made it the worst-case financial model, and it is what exposed the crisis
-   costs as too high — but it also means the reported cash line is a floor,
-   not a typical run. Worth a second policy (cheapest option) to bracket it.
-
-4. **`RollReturningClient` iterates a Guid-keyed dictionary.** Iteration
-   order is stable within a process but is not part of the seed — the one
-   part of a "deterministic" run that could still drift. Not observed.
-
-5. **The three `HudTool` chips** (Cleaning, Alert, Info) emit
-   `OnToolRequested` and nothing consumes it.
+3. **Nothing consumes `EmergentContextEmitter`'s output** except
+   `MasterGameLoop`, which only constructs it. It builds a rich world-state
+   payload for an LLM that is not there. Same shape as the crisis director
+   before it was inverted — worth either an authored consumer or deletion.
 
 ---
 
