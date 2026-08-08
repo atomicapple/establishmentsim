@@ -243,7 +243,7 @@ invisible window.
 
 See `ASSETS.md` — it documents the drop-in conventions in full.
 
-Short version: **`Assets/` is tracked in full** — 804 MB, nothing excluded,
+Short version: **`Assets/` is tracked in full** — 551 MB, nothing excluded,
 no LFS. It was 2.1 GB with four files over GitHub's 100 MiB hard limit until
 `tools/` was written; see below.
 Furniture auto-discovers from folder names under `Assets/Furniture/`; the
@@ -484,15 +484,25 @@ purple runner rug   31.2 -> 1.0 MB        (all texture, barely any geometry)
 Originals of the four beds — the only files git never had — are at
 `C:\whorehouse_asset_backup`.
 
-### Still oversized, and probably deletable
+### What is still large, and why it is still here
 
-The five largest remaining files are all in `Characters/` and none of them
-are in `CharacterLibrary`: the gargoyle (37.5 MB), `Orgy_Fresh_Squeeze`
-(27.7), `Crimson_Whirlwind` (21.9), `Pink_Heart_Roller_Der` (19.9). The
-library registers two female rigs and the gentleman. Worth confirming they
-are unused and deleting them — that is another ~107 MB.
+```
+90.9 MB  Characters/Meshy_AI_Wealthy_Gentleman_Rig_biped.zip
+58.1 MB  Characters/BlackHairWhite/Meshy_AI_Elegant_Woman_Rigged_biped.zip
+46.2 MB  Characters/Blonde1/Meshy_AI_Classic_Blonde_Rigged_biped.zip
+26.4 MB  Characters/wealthy_gentleman_texture_0.png   (and three more like it)
+```
 
----
+The three `.zip` files are the **source rig archives from Meshy for the three
+characters the game actually uses**, and the
+`Meshy_AI_Wealthy_Gentleman_Rig_biped/` folder is one of them unpacked. None
+of it is loaded — the game reads `wealthy_gentleman.glb` and the two merged
+animation files — but it is the master material for characters still in use,
+so deleting it is a different decision from deleting an unused model and has
+not been taken. Roughly 250 MB sits here.
+
+The loose 26 MB PNGs are external textures beside GLBs that now embed their
+own. Probably orphaned, but "probably" is not enough to delete an art file.
 
 ## What's left
 
