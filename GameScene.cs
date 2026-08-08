@@ -8,17 +8,15 @@ using System.Linq;
 /// HUD, and wires them to each other.
 ///
 /// Layering, back to front:
-///   ColorRect backdrop  — Node2D has no bounded rect of its own to fill
-///   IsometricDollhouseView (Node2D)
-///     └ VenuePawnLayer   — a child so it inherits the view's pan and zoom
-///     └ EncounterCloudVfx — likewise, so clouds stay pinned to their rooms
+///   VenueView3D (Node3D)  — owns the orthographic camera, lights and rooms
+///     └ VenuePawns3D      — people, positioned through VenueSpace
+///     └ EncounterCloud3D  — puffs above rooms, likewise
 ///   GameHud (CanvasLayer)
 ///   NightLedgerScreen (CanvasLayer, above the HUD)
 ///
-/// The view layers are children of the dollhouse view deliberately. They all
-/// position via <see cref="IsoTheme.GridToScreen"/> in the same local space,
-/// so parenting keeps them aligned under camera movement for free rather
-/// than mirroring a transform every frame.
+/// The pawn and cloud layers are children of the venue view so they share
+/// its world space; all three place things through <see cref="VenueSpace"/>,
+/// which is the single definition of where a grid cell sits in the world.
 /// </summary>
 public partial class GameScene : Node
 {
@@ -52,9 +50,9 @@ public partial class GameScene : Node
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
     private GameBootstrap _boot;
-    private IsometricDollhouseView _view;
-    private VenuePawnLayer _pawns;
-    private EncounterCloudVfx _clouds;
+    private VenueView3D _view;
+    private VenuePawns3D _pawns;
+    private EncounterCloud3D _clouds;
     private GameHud _hud;
     private NightLedgerScreen _ledger;
     private DecoratePanel _decorate;
@@ -72,7 +70,6 @@ public partial class GameScene : Node
 
     public override void _Ready()
     {
-        BuildBackdrop();
         BuildWorld();
         BuildViewLayers();
         BuildInterface();
@@ -85,20 +82,6 @@ public partial class GameScene : Node
     }
 
     // ── Construction ───────────────────────────────────────────────────
-
-    private void BuildBackdrop()
-    {
-        var backdrop = new ColorRect
-        {
-            Name = "Backdrop",
-            Color = IsoTheme.Backdrop,
-            AnchorRight = 1f,
-            AnchorBottom = 1f,
-            MouseFilter = Control.MouseFilterEnum.Ignore
-        };
-
-        AddChild(backdrop);
-    }
 
     private void BuildWorld()
     {
@@ -113,26 +96,13 @@ public partial class GameScene : Node
 
     private void BuildViewLayers()
     {
-        _view = new IsometricDollhouseView { Name = "DollhouseView" };
+        _view = new VenueView3D { Name = "VenueView" };
         AddChild(_view);
 
-        _pawns = new VenuePawnLayer { Name = "PawnLayer", ZIndex = 100 };
+        _pawns = new VenuePawns3D { Name = "PawnLayer" };
         _view.AddChild(_pawns);
 
-        _clouds = new EncounterCloudVfx
-        {
-            Name = "CloudVfx",
-
-            // Defaults billowed wide enough to blanket the whole room and
-            // hide the furniture underneath. The cloud is a status indicator
-            // sitting *above* the room, not weather covering it — so it rides
-            // higher, reads smaller, and stays translucent.
-            CloudRadius = 13f,
-            CloudLift = 74f,
-            CloudOpacity = 0.5f,
-            MaxPuffs = 5
-        };
-
+        _clouds = new EncounterCloud3D { Name = "CloudVfx" };
         _view.AddChild(_clouds);
     }
 
@@ -145,7 +115,7 @@ public partial class GameScene : Node
         AddChild(_ledger);
 
         // Side panels are Controls, so they need a CanvasLayer to sit above
-        // the Node2D dollhouse.
+        // the 3D viewport.
         var panelLayer = new CanvasLayer { Name = "PanelLayer", Layer = 20 };
         AddChild(panelLayer);
 
@@ -309,6 +279,8 @@ public partial class GameScene : Node
     private void OnWorldReady()
     {
         _view.Bind(_boot.Venue);
+        _pawns.Bind(_boot.Venue);
+        _clouds.Bind(_boot.Venue);
         _hud.Bind(_boot.Night, _boot.Venue);
 
         // Refusals carry the reason — "Commissioner Ashford is at 25 favour
@@ -338,51 +310,17 @@ public partial class GameScene : Node
     }
 
     /// <summary>
-    /// Frame the whole building in the viewport.
+    /// Frame the whole building.
     ///
-    /// Centring alone is not enough: a tall building overflows vertically and
-    /// the top floor gets clipped, and the required zoom changes every time
-    /// the player buys a storey. This derives the zoom from the drawn bounds
-    /// against the free screen area, so it stays correct as the house grows.
+    /// In 2D this had to derive a zoom from the drawn pixel bounds against
+    /// the free screen area. An orthographic camera makes that the view's own
+    /// business — it knows the world extent and its own Size — so this is now
+    /// a passthrough, kept as a seam for HUD-aware framing later.
     /// </summary>
-    private void FitCameraToBuilding()
-    {
-        if (_view == null) return;
-
-        var bounds = _view.GetBuildingBounds();
-        if (bounds.Size.X <= 1f || bounds.Size.Y <= 1f)
-        {
-            _view.CenterOnBuilding();
-            return;
-        }
-
-        var viewport = GetViewport()?.GetVisibleRect().Size ?? new Vector2(1280, 720);
-
-        // The HUD occupies the top bar, the right panel and the lower centre.
-        // Fit against what is actually free rather than the whole window.
-        var usable = new Vector2(
-            Mathf.Max(320f, viewport.X - HudRightPanelWidth - HudLeftMargin),
-            Mathf.Max(240f, viewport.Y - HudTopBarHeight - HudBottomHeight));
-
-        var zoom = Mathf.Min(usable.X / bounds.Size.X, usable.Y / bounds.Size.Y) * FitPadding;
-
-        _view.Zoom = zoom;
-
-        // Centre the bounds inside the usable region, then shift right and
-        // down to clear the top bar and left of the build panel.
-        var center = bounds.Position + bounds.Size * 0.5f;
-        _view.PanOffset = new Vector2(
-            HudLeftMargin + usable.X * 0.5f - center.X * zoom,
-            HudTopBarHeight + usable.Y * 0.5f - center.Y * zoom);
-    }
+    private void FitCameraToBuilding() => _view?.CenterOnBuilding();
 
     private const float HudTopBarHeight = 58f;
-    private const float HudRightPanelWidth = 268f;
-    private const float HudLeftMargin = 150f;
     private const float HudBottomHeight = 130f;
-
-    /// <summary>Leave a margin so the building never touches the HUD edges.</summary>
-    private const float FitPadding = 0.95f;
 
     private void OnWorldSettled()
     {

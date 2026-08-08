@@ -46,6 +46,7 @@ public partial class GameBootstrap : Node
     public PolicyTreeManager Policies { get; private set; }
     public MacroEconomyEngine Macro { get; private set; }
     public FurnitureCatalog Catalog { get; private set; }
+    public CharacterLibrary Characters { get; private set; }
 
     private readonly RandomNumberGenerator _rng = new();
 
@@ -83,6 +84,11 @@ public partial class GameBootstrap : Node
 
         Venue = Add<VenueBuilding>("VenueBuilding");
         Catalog = Add<FurnitureCatalog>("FurnitureCatalog");
+
+        // Owns the parsed character models. Without it in the tree every pawn
+        // silently falls back to a capsule, since the library is reached
+        // through its singleton.
+        Characters = Add<CharacterLibrary>("CharacterLibrary");
         Recruitment = Add<RecruitmentService>("RecruitmentService");
         Night = Add<NightDirector>("NightDirector");
         Loop = Add<MasterGameLoop>("MasterGameLoop");
