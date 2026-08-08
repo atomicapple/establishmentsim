@@ -343,9 +343,33 @@ characters.
 
 ## Repo
 
-Not pushed anywhere yet. Remote is set to
-`https://github.com/atomicapple/whorehouse` — `git push -u origin main` when
-wanted. 25 commits, `.git` ~1.9 MB because all the heavy assets are ignored.
+**`https://github.com/atomicapple/establishmentsim`, private.** Pushed and in
+sync. 31 commits; `.git` ~1.3 GB, because `Assets/` is tracked.
+
+Assets went up as ordinary git objects — 157 files, 1.55 GiB, no LFS and
+nothing paid for. Four ornate bed exports (103–138 MiB each) are excluded by
+a narrow ignore pattern: they exceed GitHub's 100 MiB per-file hard limit, so
+a push containing any of them is *rejected*, not warned about. They are being
+replaced with smaller textured models. The 300 KB Regal Purple Velvet bed in
+the same folder is tracked, so Beds is not an empty category.
+
+Thirteen other files drew "larger than the recommended 50 MB" warnings.
+Advisory, not enforced — but they are the same problem as the beds under the
+threshold, and all of them need decimating before release anyway. A 70 MB rug
+is a Meshy default, not a game asset.
+
+### A warning about this file
+
+`Assets/` was untracked for 30 commits on the strength of a `.gitignore`
+comment explaining that the project had moved to 2D illustrated isometric and
+the 3D models were therefore surplus. That stopped being true at the 3D
+migration. Nobody questioned the exclusion because the comment sounded like a
+reason.
+
+**Prose rots the same way code does, and it rots more quietly** — a stale
+comment is indistinguishable from a current one, where a stale function at
+least fails a test. This file is prose. When something here contradicts what
+you observe, the file is what is wrong.
 
 Commit messages in this repo are long and explain *why*, including bugs found
 and rejected approaches. Worth continuing — several of them are the only
