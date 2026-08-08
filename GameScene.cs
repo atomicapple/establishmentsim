@@ -102,6 +102,12 @@ public partial class GameScene : Node
     /// <summary>Capture runs only: open the Info shortcut card.</summary>
     [Export] public bool CaptureHelp { get; set; }
 
+    /// <summary>Show the four intro cards on a new campaign.</summary>
+    [Export] public bool ShowIntroduction { get; set; } = true;
+
+    /// <summary>Capture runs only: photograph the intro instead of the game.</summary>
+    [Export] public bool CaptureIntro { get; set; }
+
     /// <summary>Seconds before an automatic screenshot. Zero disables it.</summary>
     [Export] public float ScreenshotAfterSeconds { get; set; }
 
@@ -120,6 +126,7 @@ public partial class GameScene : Node
     private UnionPanel _union;
     private CrisisScreen _crisis;
     private NegotiationScreen _negotiation;
+    private IntroScreen _intro;
     private ScreenshotCapture _screenshot;
 
     /// <summary>Maps an in-flight encounter to the staff pawn working it.</summary>
@@ -189,6 +196,10 @@ public partial class GameScene : Node
         // this is up, so it is the most immediate thing on screen.
         _negotiation = new NegotiationScreen { Name = "NegotiationScreen" };
         AddChild(_negotiation);
+
+        // Above everything: it is the first thing a new campaign sees.
+        _intro = new IntroScreen { Name = "IntroScreen" };
+        AddChild(_intro);
 
         // Side panels are Controls, so they need a CanvasLayer to sit above
         // the 3D viewport.
@@ -354,6 +365,8 @@ public partial class GameScene : Node
         _crisis.OnChoiceTaken += OnCrisisChoiceTaken;
         _crisis.OnDismissed += OnCrisisDismissed;
 
+        _intro.OnDismissed += RefreshNextStep;
+
         _negotiation.OnPriceAgreed += price => _boot?.Night?.ResolveNegotiation(price);
         _negotiation.OnClientRefused += () => _boot?.Night?.DeclineClient();
 
@@ -398,6 +411,7 @@ public partial class GameScene : Node
     {
         RefreshStaffPawns();
         _hud?.RefreshAll();
+        RefreshNextStep();
     }
 
     /// <summary>
@@ -517,6 +531,24 @@ public partial class GameScene : Node
             TogglePanel(panel);
             return;
         }
+    }
+
+    // ── Learning the game ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Recompute the "next step" prompt from the world.
+    ///
+    /// Cheap enough to call after anything the player does, and derived
+    /// rather than scripted, so it can never tell them to undo something they
+    /// sensibly did out of order.
+    /// </summary>
+    private void RefreshNextStep()
+    {
+        if (_hud == null || _boot?.Venue == null || _boot.Night == null) return;
+
+        var step = Onboarding.Next(_boot.Venue, _boot.Night);
+
+        _hud.SetNextStep(Onboarding.Caption(step), Onboarding.Detail(step));
     }
 
     // ── At the door ────────────────────────────────────────────────────
@@ -677,6 +709,7 @@ public partial class GameScene : Node
     {
         _view.Refresh();
         _hud?.RefreshAll();
+        RefreshNextStep();
     }
 
     private void OnWorldReady()
@@ -764,6 +797,15 @@ public partial class GameScene : Node
             RefreshStaffPawns();
         }
 
+        RefreshNextStep();
+
+        // A new campaign is introduced; an established house is not, because
+        // it is either a capture run or a player who has already seen this.
+        // Never during a screenshot run either — a modal over every shot
+        // would be its own kind of bug.
+        if (ShowIntroduction && !SeedEstablishedHouse && ScreenshotAfterSeconds <= 0f)
+            _intro.ShowIntro();
+
         if (ScreenshotAfterSeconds <= 0f || _boot?.Night == null) return;
 
         if (CaptureDecoratePanel)
@@ -802,6 +844,12 @@ public partial class GameScene : Node
         {
             _boot.Crises?.ForceCrisis(forced);
             ShowPendingCrisis();
+            return;
+        }
+
+        if (CaptureIntro)
+        {
+            _intro.ShowIntro();
             return;
         }
 
@@ -876,6 +924,7 @@ public partial class GameScene : Node
             if (venue.BuildRoom(type, tile) != null)
             {
                 _view.Refresh();
+                RefreshNextStep();
                 return;
             }
         }
@@ -927,6 +976,7 @@ public partial class GameScene : Node
         // Building is a Preparation-time activity; the panel greys out once
         // the doors open so the player cannot rebuild under a live client.
         _hud?.SetStatusChip(HudTool.Info, phase.ToString(), phase == NightPhase.Service);
+        RefreshNextStep();
 
         if (phase == NightPhase.Idle || phase == NightPhase.Preparation)
         {

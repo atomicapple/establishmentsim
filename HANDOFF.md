@@ -87,7 +87,7 @@ Self-driving screenshot runs. Each sets flags on `GameScene` and quits.
 `hiring_capture` · `influence_capture` · `policy_capture` ·
 `patrons_capture` · `licences_capture` · `union_capture` ·
 `union_strike_capture` · `crackdown_capture` · `crisis_capture` ·
-`help_capture` · `negotiation_capture`
+`help_capture` · `negotiation_capture` · `intro_capture`
 
 Output lands in
 `C:\Users\tobia\AppData\Roaming\Godot\app_userdata\Establishment Simulator\screenshots\`.
@@ -331,6 +331,20 @@ fix, not a lower number. A 50-night run now faces five.
 Adding them exposed that the crisis costs were authored for a
 once-a-campaign event: at five per fifty nights the house went bankrupt at
 −$3,668. Every "pay it away" cash line was scaled to roughly 55%.
+
+### Onboarding
+
+`IntroScreen` shows four cards on a new campaign — what the house is, the
+shape of a night, what Appointment actually sells, and what it costs in
+people and heat. Skippable, and suppressed on capture runs and on the
+established house.
+
+The step-by-step guidance is **derived, not scripted**. `Onboarding.Next`
+reads the world every time it is asked and returns the first thing genuinely
+still undone, which surfaces as a chip in the top bar. A player who furnishes
+before posting staff, or builds two suites before opening, is never told to
+undo anything — the prompt just moves on. There is no sequence to persist, no
+state to reset, and no way for the guidance to disagree with the game.
 
 ### Two modal screens above the HUD, and a third
 

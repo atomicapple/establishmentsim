@@ -528,6 +528,10 @@ public partial class GameHud : CanvasLayer
 
         BuildCityChip(row);
 
+        _nextStepChip = new Button { Flat = false, Visible = false };
+        HudStyle.StyleButton(_nextStepChip, IsoTheme.Good, 12, 12, 12);
+        row.AddChild(_nextStepChip);
+
         row.AddChild(MakeSeparator());
 
         BuildPanelRail(row);
@@ -579,6 +583,23 @@ public partial class GameHud : CanvasLayer
     }
 
     private Button _cityChip;
+
+    /// <summary>
+    /// What the player should do next, while they are still learning. Sits
+    /// beside the city chip and disappears once the first night is behind
+    /// them — permanent guidance is clutter, and a prompt nobody needs any
+    /// more is worse than none.
+    /// </summary>
+    public void SetNextStep(string caption, string detail)
+    {
+        if (_nextStepChip == null) return;
+
+        _nextStepChip.Visible = !string.IsNullOrEmpty(caption);
+        _nextStepChip.Text = caption ?? "";
+        _nextStepChip.TooltipText = detail ?? "";
+    }
+
+    private Button _nextStepChip;
 
     /// <summary>
     /// Report the city's mood. <paramref name="detail"/> becomes the tooltip
